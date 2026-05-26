@@ -207,3 +207,103 @@ fn owner_index_tracks_commitments() {
     assert_eq!(ids.get(0).unwrap(), a);
     assert_eq!(ids.get(1).unwrap(), b);
 }
+
+#[test]
+fn early_exit_success() {
+    let f = setup();
+    let owner = Address::generate(&f.env);
+    fund_owner(&f, &owner, 1_000);
+    // 5% penalty.
+    let id = f
+        .client
+        .create_commitment(&owner, &f.asset, &1_000, &RiskProfile::Aggressive, &30, &500);
+    f.client.fund_escrow(&id);
+
+    let res = f.client.early_exit_commitment(&id, &owner);
+    assert_eq!(res.exitAmount, 950);
+    assert_eq!(res.penaltyAmount, 50);
+    assert_eq!(res.finalStatus, EscrowStatus::Refunded);
+
+    assert_eq!(f.token.balance(&owner), 950);
+    assert_eq!(f.token.balance(&f.fee_recipient), 50);
+    assert_eq!(f.client.get_commitment(&id).status, EscrowStatus::Refunded);
+}
+
+#[test]
+fn early_exit_unauthorized() {
+    let f = setup();
+    let owner = Address::generate(&f.env);
+    let malicious = Address::generate(&f.env);
+    fund_owner(&f, &owner, 1_000);
+    let id = f
+        .client
+        .create_commitment(&owner, &f.asset, &1_000, &RiskProfile::Aggressive, &30, &500);
+    f.client.fund_escrow(&id);
+
+    let res = f.client.try_early_exit_commitment(&id, &malicious);
+    assert_eq!(res, Err(Ok(Error::Unauthorized)));
+}
+
+#[test]
+fn early_exit_invalid_state() {
+    let f = setup();
+    let owner = Address::generate(&f.env);
+    fund_owner(&f, &owner, 2_000);
+
+    // Case 1: Created but not funded
+    let id1 = f
+        .client
+        .create_commitment(&owner, &f.asset, &1_000, &RiskProfile::Aggressive, &30, &500);
+    let res1 = f.client.try_early_exit_commitment(&id1, &owner);
+    assert_eq!(res1, Err(Ok(Error::InvalidState)));
+
+    // Case 2: Already refunded (early-exited)
+    let id2 = f
+        .client
+        .create_commitment(&owner, &f.asset, &1_000, &RiskProfile::Aggressive, &30, &500);
+    f.client.fund_escrow(&id2);
+    f.client.early_exit_commitment(&id2, &owner);
+    let res2 = f.client.try_early_exit_commitment(&id2, &owner);
+    assert_eq!(res2, Err(Ok(Error::InvalidState)));
+}
+
+#[test]
+fn early_exit_zero_penalty() {
+    let f = setup();
+    let owner = Address::generate(&f.env);
+    fund_owner(&f, &owner, 1_000);
+    // 0% penalty.
+    let id = f
+        .client
+        .create_commitment(&owner, &f.asset, &1_000, &RiskProfile::Safe, &30, &0);
+    f.client.fund_escrow(&id);
+
+    let res = f.client.early_exit_commitment(&id, &owner);
+    assert_eq!(res.exitAmount, 1_000);
+    assert_eq!(res.penaltyAmount, 0);
+    assert_eq!(res.finalStatus, EscrowStatus::Refunded);
+
+    assert_eq!(f.token.balance(&owner), 1_000);
+    assert_eq!(f.token.balance(&f.fee_recipient), 0);
+}
+
+#[test]
+fn early_exit_full_penalty() {
+    let f = setup();
+    let owner = Address::generate(&f.env);
+    fund_owner(&f, &owner, 1_000);
+    // 100% penalty (10,000 bps).
+    let id = f
+        .client
+        .create_commitment(&owner, &f.asset, &1_000, &RiskProfile::Aggressive, &30, &10_000);
+    f.client.fund_escrow(&id);
+
+    let res = f.client.early_exit_commitment(&id, &owner);
+    assert_eq!(res.exitAmount, 0);
+    assert_eq!(res.penaltyAmount, 1_000);
+    assert_eq!(res.finalStatus, EscrowStatus::Refunded);
+
+    assert_eq!(f.token.balance(&owner), 0);
+    assert_eq!(f.token.balance(&f.fee_recipient), 1_000);
+}
+

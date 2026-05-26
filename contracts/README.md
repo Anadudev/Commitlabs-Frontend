@@ -40,11 +40,48 @@ create_commitment ──► fund_escrow ──► release            (matured: p
 | `fund_escrow(commitment_id)` | Transfer `amount` from owner into the contract (`Created → Funded`). |
 | `release(commitment_id, caller)` | Return principal to owner once matured (`Funded → Released`). |
 | `refund(commitment_id)` | Early-exit refund of principal minus `penalty_bps` (`Funded → Refunded`). |
+| `early_exit_commitment(commitment_id, caller)` | Process early exit for `commitment_id` called by `caller` (`Funded → Refunded`). Returns `EarlyExitResult`. |
 | `dispute(commitment_id, caller, reason)` | Freeze a funded commitment pending admin resolution. |
 | `resolve_dispute(commitment_id, release_to_owner)` | Admin-only settlement of a disputed commitment. |
 | `record_attestation(commitment_id, attestor, compliance_score)` | Record a 0–100 compliance score. |
 | `get_commitment(commitment_id)` | Read a single commitment record. |
 | `get_owner_commitments(owner)` | List commitment ids owned by an address. |
+
+### `early_exit_commitment` entrypoint details
+
+#### ABI Signature
+```rust
+pub fn early_exit_commitment(
+    env: Env,
+    commitment_id: u64,
+    caller: Address,
+) -> Result<EarlyExitResult, Error>
+```
+
+#### Response Struct Format (`EarlyExitResult`)
+When returned from the contract, the result is serialized as a map/object containing:
+* **`exitAmount`** (`i128`): The final amount returned to the commitment owner (principal minus penalty).
+* **`penaltyAmount`** (`i128`): The penalty fee amount deducted and paid to the fee recipient.
+* **`finalStatus`** (`EscrowStatus`): The final status of the commitment (always `Refunded`).
+
+#### Field Descriptions
+| Field | Type | Description |
+| --- | --- | --- |
+| `exitAmount` | `i128` | The absolute quantity of tokens transferred back to the commitment owner. |
+| `penaltyAmount` | `i128` | The absolute quantity of tokens transferred to the fee recipient as an early-exit penalty. |
+| `finalStatus` | `EscrowStatus` | The post-exit state of the escrow commitment, represented as `Refunded`. |
+
+#### Example Usage
+An invocator (e.g., the backend service layer) calls this entrypoint and retrieves the structured receipt:
+```typescript
+const result = await invokeContractMethod(
+  contractId,
+  "early_exit_commitment",
+  [commitmentId, ownerAddress],
+  "write"
+);
+console.log(`Exit Amount: ${result.exitAmount}, Penalty: ${result.penaltyAmount}`);
+```
 
 ### Risk profiles & penalties
 

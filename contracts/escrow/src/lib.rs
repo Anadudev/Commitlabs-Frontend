@@ -1,4 +1,5 @@
 #![no_std]
+#![allow(non_snake_case)]
 //! CommitLabs Escrow Contract
 //!
 //! Implements the on-chain escrow lifecycle backing CommitLabs liquidity
@@ -96,6 +97,16 @@ pub enum Error {
     NotMatured = 7,
     InvalidDuration = 8,
     PenaltyTooHigh = 9,
+}
+
+/// Result of an early exit commitment.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[allow(non_snake_case)]
+pub struct EarlyExitResult {
+    pub exitAmount: i128,
+    pub penaltyAmount: i128,
+    pub finalStatus: EscrowStatus,
 }
 
 const MAX_PENALTY_BPS: u32 = 10_000;
@@ -239,36 +250,32 @@ impl EscrowContract {
     /// only while the commitment is `Funded` and before maturity.
     pub fn refund(env: Env, commitment_id: u64) -> Result<i128, Error> {
         Self::require_init(&env)?;
-        let mut c = Self::load(&env, commitment_id)?;
+        let c = Self::load(&env, commitment_id)?;
         c.owner.require_auth();
-
-        if c.status != EscrowStatus::Funded {
-            return Err(Error::InvalidState);
-        }
-
-        let penalty = (c.amount * c.penalty_bps as i128) / MAX_PENALTY_BPS as i128;
-        let refund_amount = c.amount - penalty;
-
-        let token = Self::token_client(&env);
-        let contract = env.current_contract_address();
-        if penalty > 0 {
-            let fee_recipient: Address = env
-                .storage()
-                .instance()
-                .get(&DataKey::FeeRecipient)
-                .ok_or(Error::NotInitialized)?;
-            token.transfer(&contract, &fee_recipient, &penalty);
-        }
-        token.transfer(&contract, &c.owner, &refund_amount);
-
-        c.status = EscrowStatus::Refunded;
-        Self::save(&env, &c);
-
-        env.events().publish(
-            (Symbol::new(&env, "refund"), c.owner.clone()),
-            (commitment_id, refund_amount, penalty),
-        );
+        let (refund_amount, _) = Self::execute_refund(&env, c)?;
         Ok(refund_amount)
+    }
+
+    /// Process an early exit for a commitment. Only the owner (caller) may early exit
+    /// and only while the commitment is `Funded`. Returns the structured result including
+    /// exit amount, penalty amount, and updated status.
+    pub fn early_exit_commitment(
+        env: Env,
+        commitment_id: u64,
+        caller: Address,
+    ) -> Result<EarlyExitResult, Error> {
+        Self::require_init(&env)?;
+        caller.require_auth();
+        let c = Self::load(&env, commitment_id)?;
+        if caller != c.owner {
+            return Err(Error::Unauthorized);
+        }
+        let (exit_amount, penalty_amount) = Self::execute_refund(&env, c)?;
+        Ok(EarlyExitResult {
+            exitAmount: exit_amount,
+            penaltyAmount: penalty_amount,
+            finalStatus: EscrowStatus::Refunded,
+        })
     }
 
     /// Flag a funded commitment as disputed, freezing release/refund until an
@@ -375,6 +382,46 @@ impl EscrowContract {
     }
 
     // ── Internal helpers ────────────────────────────────────────────────────
+
+    fn execute_refund(
+        env: &Env,
+        mut c: Commitment,
+    ) -> Result<(i128, i128), Error> {
+        if c.status != EscrowStatus::Funded {
+            return Err(Error::InvalidState);
+        }
+
+        let penalty_mul = c
+            .amount
+            .checked_mul(c.penalty_bps as i128)
+            .ok_or(Error::InvalidAmount)?;
+        let penalty = penalty_mul / MAX_PENALTY_BPS as i128;
+        let refund_amount = c
+            .amount
+            .checked_sub(penalty)
+            .ok_or(Error::InvalidAmount)?;
+
+        let token = Self::token_client(env);
+        let contract = env.current_contract_address();
+        if penalty > 0 {
+            let fee_recipient: Address = env
+                .storage()
+                .instance()
+                .get(&DataKey::FeeRecipient)
+                .ok_or(Error::NotInitialized)?;
+            token.transfer(&contract, &fee_recipient, &penalty);
+        }
+        token.transfer(&contract, &c.owner, &refund_amount);
+
+        c.status = EscrowStatus::Refunded;
+        Self::save(env, &c);
+
+        env.events().publish(
+            (Symbol::new(env, "refund"), c.owner.clone()),
+            (c.id, refund_amount, penalty),
+        );
+        Ok((refund_amount, penalty))
+    }
 
     fn require_init(env: &Env) -> Result<(), Error> {
         if !env.storage().instance().has(&DataKey::Admin) {
