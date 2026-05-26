@@ -861,3 +861,68 @@ export async function earlyExitCommitmentOnChain(
     });
   }
 }
+
+export interface TransferOwnershipParams {
+  commitmentId: string;
+  fromAddress: string;
+  toAddress: string;
+}
+
+export interface TransferOwnershipResult {
+  commitmentId: string;
+  newOwner: string;
+  txHash?: string;
+  reference?: string;
+}
+
+export async function transferOwnership(
+  params: TransferOwnershipParams,
+): Promise<TransferOwnershipResult> {
+  try {
+    if (!params.commitmentId) {
+      throw new BackendError({
+        code: "BAD_REQUEST",
+        message: "Missing commitment id for ownership transfer.",
+        status: 400,
+      });
+    }
+    validateOwnerAddress(params.fromAddress);
+    validateOwnerAddress(params.toAddress);
+
+    const invocation = await invokeContractMethod(
+      getContractId("commitmentCore"),
+      "transfer_ownership",
+      [
+        nativeToScVal(params.commitmentId),
+        new Address(params.fromAddress).toScVal(),
+        new Address(params.toAddress).toScVal(),
+      ],
+      "write",
+    );
+
+    const countersAdapter = getCountersAdapter();
+    void countersAdapter.incrementSuccessfulActions();
+
+    void cache.delete(CacheKey.commitment(params.commitmentId));
+    void cache.delete(CacheKey.userCommitments(params.fromAddress));
+    void cache.delete(CacheKey.userCommitments(params.toAddress));
+
+    const result = asRecord(invocation.value);
+    return {
+      commitmentId: params.commitmentId,
+      newOwner: asString(result.newOwner, params.toAddress),
+      txHash: invocation.txHash,
+      reference: invocation.txHash ? undefined : "TODO_CHAIN_CALL_TRANSFER_OWNERSHIP",
+    };
+  } catch (error) {
+    const countersAdapter = getCountersAdapter();
+    void countersAdapter.incrementChainFailures();
+
+    throw normalizeBackendError(error, {
+      code: "BLOCKCHAIN_CALL_FAILED",
+      message: "Unable to transfer commitment ownership on chain.",
+      status: 502,
+      details: { method: "transfer_ownership", commitmentId: params.commitmentId },
+    });
+  }
+}

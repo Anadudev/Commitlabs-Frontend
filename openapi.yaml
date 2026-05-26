@@ -227,6 +227,114 @@ paths:
               schema:
                 $ref: '#/components/schemas/SuccessEnvelope'
 
+  /api/marketplace/listings/{id}/preflight:
+    post:
+      summary: Purchase Preflight
+      description: Checks whether the authenticated buyer is eligible to purchase a listing before committing.
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [buyerAddress]
+              properties:
+                buyerAddress:
+                  type: string
+                  example: "GBUYERADDRESS..."
+      responses:
+        '200':
+          description: Preflight result.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          eligible:
+                            type: boolean
+                          reasons:
+                            type: array
+                            items:
+                              type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/marketplace/listings/{id}/purchase:
+    post:
+      summary: Purchase Listing
+      description: |
+        Purchases a marketplace listing. Runs preflight eligibility checks,
+        authenticates the buyer via session cookie, triggers on-chain ownership
+        transfer through the contracts service, and records the event in the
+        audit log.
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The marketplace listing ID.
+      responses:
+        '200':
+          description: Purchase completed successfully.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          listingId:
+                            type: string
+                          commitmentId:
+                            type: string
+                          buyerAddress:
+                            type: string
+                          price:
+                            type: string
+                          currencyAsset:
+                            type: string
+                          txHash:
+                            type: string
+                            nullable: true
+                          reference:
+                            type: string
+                            nullable: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Purchase not eligible (listing inactive, buyer is seller, etc.).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
   /api/attestations:
     get:
       summary: List Attestations

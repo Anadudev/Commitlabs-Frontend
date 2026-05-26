@@ -64,6 +64,46 @@ Clients should wait the indicated seconds before retrying. See [error-handling.m
 
 ---
 
+## `POST /api/marketplace/listings/[id]/purchase`
+
+Purchases a marketplace listing. Requires an active session cookie. Runs
+preflight eligibility checks, triggers on-chain ownership transfer, and records
+the event in the audit log.
+
+- **Authentication**: session cookie (`requireAuth`)
+- **Path parameter**: `id` — the marketplace listing ID
+- **Request body**: none
+- **Response**:
+  - `200 OK`: Purchase completed.
+  - `401 Unauthorized`: Missing or invalid session.
+  - `404 Not Found`: Listing does not exist.
+  - `409 Conflict`: Preflight failed (e.g. listing inactive, buyer is seller).
+  - `502 Bad Gateway`: On-chain transfer failed.
+
+### Example
+
+```bash
+curl -X POST http://localhost:3000/api/marketplace/listings/listing_1/purchase \
+     -H 'Cookie: session=<token>'
+```
+
+```json
+{
+  "success": true,
+  "data": {
+    "listingId": "listing_1",
+    "commitmentId": "cm_abc",
+    "buyerAddress": "GBUYER...",
+    "price": "52000",
+    "currencyAsset": "USDC",
+    "txHash": null,
+    "reference": "TODO_CHAIN_CALL_TRANSFER_OWNERSHIP"
+  }
+}
+```
+
+---
+
 ## `POST /api/commitments`
 
 Creates a new commitment on the Stellar network.
