@@ -53,6 +53,8 @@ create_commitment ──► fund_escrow ──► release            (matured: p
 | `get_yield_pool_balance()` | Read the yield pool balance available for matured release payouts. |
 | `release(commitment_id, caller)` | Return principal plus accrued yield to owner once matured (`Funded → Released`). |
 | `refund(commitment_id)` | Early-exit refund of principal minus `penalty_bps` (`Funded → Refunded`). |
+| `set_grace_period(admin, grace_period_seconds)` | Admin-only configuration of the penalty-free grace window before maturity. |
+| `get_grace_period()` | Read the currently configured penalty-free grace period in seconds. |
 | `dispute(commitment_id, caller, reason)` | Freeze a funded commitment pending admin resolution. The reason is automatically categorized. |
 | `resolve_dispute(commitment_id, release_to_owner)` | Admin-only settlement of a disputed commitment. |
 | `get_dispute(commitment_id)` | Read the dispute record for a commitment (category, reason, timestamp, initiator). |
@@ -104,6 +106,9 @@ const result = await invokeContractMethod(
 );
 console.log(`Exit Amount: ${result.exitAmount}, Penalty: ${result.penaltyAmount}`);
 ```
+
+#### Grace period behavior
+The contract supports a configurable penalty-free window before commitment maturity. If a funded commitment is refunded while the ledger time is within the configured grace period before maturity, the early-exit penalty is waived and the full principal is returned.
 
 ### Yield model
 

@@ -251,6 +251,59 @@ fn refund_applies_penalty_to_fee_recipient() {
 }
 
 #[test]
+fn refund_within_grace_period_is_penalty_free() {
+    let f = setup();
+    let owner = Address::generate(&f.env);
+    fund_owner(&f, &owner, 1_000);
+
+    // Admin configures a 1-day penalty-free grace window.
+    f.client.set_grace_period(&f.admin, &SECONDS_PER_DAY);
+
+    let id = f
+        .client
+        .create_commitment(&owner, &f.asset, &1_000, &RiskProfile::Aggressive, &30, &500);
+    f.client.fund_escrow(&id);
+
+    // Advance to the exact start of the grace window.
+    f.env.ledger().set_timestamp(29 * SECONDS_PER_DAY);
+    let refunded = f.client.refund(&id);
+
+    assert_eq!(refunded, 1_000);
+    assert_eq!(f.token.balance(&owner), 1_000);
+    assert_eq!(f.token.balance(&f.fee_recipient), 0);
+}
+
+#[test]
+fn refund_outside_grace_period_still_applies_penalty() {
+    let f = setup();
+    let owner = Address::generate(&f.env);
+    fund_owner(&f, &owner, 1_000);
+
+    f.client.set_grace_period(&f.admin, &SECONDS_PER_DAY);
+
+    let id = f
+        .client
+        .create_commitment(&owner, &f.asset, &1_000, &RiskProfile::Aggressive, &30, &500);
+    f.client.fund_escrow(&id);
+
+    // Advance to just before the grace window begins.
+    f.env.ledger().set_timestamp(28 * SECONDS_PER_DAY);
+    let refunded = f.client.refund(&id);
+
+    assert_eq!(refunded, 950);
+    assert_eq!(f.token.balance(&f.fee_recipient), 50);
+}
+
+#[test]
+fn admin_can_set_and_get_grace_period() {
+    let f = setup();
+    assert_eq!(f.client.get_grace_period(), 0);
+
+    f.client.set_grace_period(&f.admin, &SECONDS_PER_DAY);
+    assert_eq!(f.client.get_grace_period(), SECONDS_PER_DAY);
+}
+
+#[test]
 fn dispute_freezes_then_admin_resolves() {
     let f = setup();
     let owner = Address::generate(&f.env);
