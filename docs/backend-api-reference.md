@@ -64,6 +64,46 @@ Clients should wait the indicated seconds before retrying. See [error-handling.m
 
 ---
 
+## `POST /api/marketplace/listings/[id]/purchase`
+
+Purchases a marketplace listing. Requires an active session cookie. Runs
+preflight eligibility checks, triggers on-chain ownership transfer, and records
+the event in the audit log.
+
+- **Authentication**: session cookie (`requireAuth`)
+- **Path parameter**: `id` — the marketplace listing ID
+- **Request body**: none
+- **Response**:
+  - `200 OK`: Purchase completed.
+  - `401 Unauthorized`: Missing or invalid session.
+  - `404 Not Found`: Listing does not exist.
+  - `409 Conflict`: Preflight failed (e.g. listing inactive, buyer is seller).
+  - `502 Bad Gateway`: On-chain transfer failed.
+
+### Example
+
+```bash
+curl -X POST http://localhost:3000/api/marketplace/listings/listing_1/purchase \
+     -H 'Cookie: session=<token>'
+```
+
+```json
+{
+  "success": true,
+  "data": {
+    "listingId": "listing_1",
+    "commitmentId": "cm_abc",
+    "buyerAddress": "GBUYER...",
+    "price": "52000",
+    "currencyAsset": "USDC",
+    "txHash": null,
+    "reference": "TODO_CHAIN_CALL_TRANSFER_OWNERSHIP"
+  }
+}
+```
+
+---
+
 ## `POST /api/commitments`
 
 Creates a new commitment on the Stellar network.
@@ -203,6 +243,42 @@ curl http://localhost:3000/api/protocol/constants
   }
 }
 ```
+
+---
+
+## `GET /api/commitments/[id]/events`
+
+Server-Sent Events (SSE) stream that pushes real-time commitment status updates and transitions (Active, Settled, Early Exit, Violated).
+
+- **Path parameter**: `id` (string)
+- **Headers**:
+    - `Accept`: `text/event-stream` (required)
+- **Security**: Requires an authenticated session via browser cookies.
+- **Protocol Details**:
+    - **Snapshot**: The server emits a `snapshot` event immediately upon connection carrying the current status.
+    - **Transitions**: The server emits a `status_change` event only when a status transition is detected on-chain.
+    - **Heartbeat**: The server enqueues a comment heartbeat (`: keepalive`) every 20 seconds to prevent intermediates (proxies, load balancers) from dropping the idle connection.
+
+### Example Event Output
+
+```text
+event: snapshot
+data: {"commitmentId":"abc123","status":"Active","timestamp":"2026-05-27T01:30:00.000Z"}
+
+: keepalive
+
+event: status_change
+data: {"commitmentId":"abc123","status":"Settled","timestamp":"2026-05-27T01:30:15.000Z"}
+```
+
+### Client Reconnection & Backoff Guidelines
+
+- **Automatic Reconnection**: Standard browser `EventSource` handles connection drops and reconnection attempts automatically.
+- **Exponential Backoff**: For non-browser clients or custom connection wrappers, implement exponential backoff on reconnection failures:
+  1. Start with an initial delay of `1 second`.
+  2. Double the delay on each consecutive failure (`2s`, `4s`, `8s`, `16s`).
+  3. Cap the maximum delay at `30 seconds` to protect server resources.
+- **Graceful Fallback**: When SSE is unsupported or fails repeatedly, clients should fall back to polling the lightweight `/api/commitments/[id]/status` route at a standard, low-frequency interval (e.g., every 10–30 seconds).
 
 ---
 
