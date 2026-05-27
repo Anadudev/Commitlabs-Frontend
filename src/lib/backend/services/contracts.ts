@@ -21,6 +21,7 @@ import { CacheKey, CacheTTL } from "@/lib/backend/cache/index";
 import { getCountersAdapter } from "@/lib/backend/counters/provider";
 
 export type ChainCommitmentStatus =
+  | "CREATED"
   | "ACTIVE"
   | "SETTLED"
   | "VIOLATED"
@@ -89,6 +90,18 @@ export interface SettleCommitmentOnChainResult {
   txHash?: string;
   reference?: string;
   finalStatus: string;
+  contractVersion?: string;
+}
+
+export interface FundEscrowOnChainParams {
+  commitmentId: string;
+  callerAddress?: string;
+}
+
+export interface FundEscrowOnChainResult {
+  commitmentId: string;
+  txHash?: string;
+  reference?: string;
   contractVersion?: string;
 }
 
@@ -226,6 +239,7 @@ function asNumber(value: unknown, fallback = 0): number {
 function normalizeStatus(value: unknown): ChainCommitmentStatus {
   const raw = asString(value, "UNKNOWN").toUpperCase();
   if (
+    raw === "CREATED" ||
     raw === "ACTIVE" ||
     raw === "SETTLED" ||
     raw === "VIOLATED" ||
@@ -920,6 +934,92 @@ export async function settleCommitmentOnChain(
       status: 502,
       details: {
         method: "settle_commitment",
+        commitmentId: params.commitmentId,
+      },
+    });
+  }
+}
+
+export async function fundEscrowOnChain(
+  params: FundEscrowOnChainParams,
+): Promise<FundEscrowOnChainResult> {
+  try {
+    if (!params.commitmentId) {
+      throw new BackendError({
+        code: "BAD_REQUEST",
+        message: "Missing commitment id for funding.",
+        status: 400,
+      });
+    }
+
+    if (params.callerAddress) {
+      validateOwnerAddress(params.callerAddress);
+    }
+
+    const commitment = await getCommitmentFromChain(params.commitmentId);
+
+    if (!commitment) {
+      throw new BackendError({
+        code: "NOT_FOUND",
+        message: "Commitment not found.",
+        status: 404,
+        details: { commitmentId: params.commitmentId },
+      });
+    }
+
+    if (commitment.status !== "CREATED") {
+      throw new BackendError({
+        code: "CONFLICT",
+        message: "Only created commitments can be funded.",
+        status: 409,
+        details: { commitmentId: params.commitmentId, status: commitment.status },
+      });
+    }
+
+    const callerAddress = params.callerAddress ?? commitment.ownerAddress;
+    if (!callerAddress || callerAddress !== commitment.ownerAddress) {
+      throw new BackendError({
+        code: "FORBIDDEN",
+        message: "Only the commitment owner may fund this commitment.",
+        status: 403,
+        details: { commitmentId: params.commitmentId, callerAddress },
+      });
+    }
+
+    const invocation = await invokeContractMethod(
+      getContractId("commitmentCore"),
+      "fund_escrow",
+      [
+        nativeToScVal(params.commitmentId),
+        new Address(callerAddress).toScVal(),
+      ],
+      "write",
+    );
+
+    const countersAdapter = getCountersAdapter();
+    void countersAdapter.incrementSuccessfulActions();
+
+    void cache.delete(CacheKey.commitment(params.commitmentId));
+    if (commitment.ownerAddress) {
+      void cache.delete(CacheKey.userCommitments(commitment.ownerAddress));
+    }
+
+    return {
+      commitmentId: params.commitmentId,
+      txHash: invocation.txHash,
+      contractVersion: invocation.version,
+      reference: invocation.txHash ? undefined : "TODO_CHAIN_CALL_FUND_ESCROW",
+    };
+  } catch (error) {
+    const countersAdapter = getCountersAdapter();
+    void countersAdapter.incrementChainFailures();
+
+    throw normalizeBackendError(error, {
+      code: "BLOCKCHAIN_CALL_FAILED",
+      message: "Unable to fund escrow on chain.",
+      status: 502,
+      details: {
+        method: "fund_escrow",
         commitmentId: params.commitmentId,
       },
     });
