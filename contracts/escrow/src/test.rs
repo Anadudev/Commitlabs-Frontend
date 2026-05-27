@@ -209,6 +209,52 @@ fn owner_index_tracks_commitments() {
 }
 
 #[test]
+fn transfer_ownership_updates_commitment_and_indices() {
+    let f = setup();
+    let old_owner = Address::generate(&f.env);
+    let new_owner = Address::generate(&f.env);
+
+    fund_owner(&f, &old_owner, 1_000);
+    let id = f
+        .client
+        .create_commitment(&old_owner, &f.asset, &1_000, &RiskProfile::Safe, &30, &200);
+    f.client.fund_escrow(&id);
+
+    let before_old = f.client.get_owner_commitments(&old_owner);
+    assert_eq!(before_old.len(), 1);
+    assert_eq!(before_old.get(0).unwrap(), id);
+
+    f.client.transfer_ownership(&id, &new_owner);
+
+    let c = f.client.get_commitment(&id);
+    assert_eq!(c.owner, new_owner);
+
+    let after_old = f.client.get_owner_commitments(&old_owner);
+    assert_eq!(after_old.len(), 0);
+
+    let after_new = f.client.get_owner_commitments(&new_owner);
+    assert_eq!(after_new.len(), 1);
+    assert_eq!(after_new.get(0).unwrap(), id);
+}
+
+#[test]
+fn transfer_ownership_rejects_non_funded_commitments() {
+    let f = setup();
+    let old_owner = Address::generate(&f.env);
+    let new_owner = Address::generate(&f.env);
+
+    fund_owner(&f, &old_owner, 1_000);
+    let id = f
+        .client
+        .create_commitment(&old_owner, &f.asset, &1_000, &RiskProfile::Safe, &30, &200);
+    // Intentionally do NOT call fund_escrow; status remains Created.
+
+    let res = f.client.try_transfer_ownership(&id, &new_owner);
+    assert_eq!(res, Err(Ok(Error::InvalidState)));
+}
+
+
+#[test]
 fn create_rejects_duration_seconds_overflow() {
     let f = setup();
     let owner = Address::generate(&f.env);
