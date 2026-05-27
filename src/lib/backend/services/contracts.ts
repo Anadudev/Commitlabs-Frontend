@@ -99,6 +99,16 @@ interface ContractInvocationResult {
   version: string;
 }
 
+/**
+ * Scaling factor for compliance scores sent to/from the blockchain.
+ * Compliance scores are stored on-chain as integers in the range [0, 100]
+ * to avoid floating-point precision issues. When writing to the chain,
+ * scores are divided by this scale; when reading from the chain, they
+ * are multiplied by this scale to restore the original value.
+ *
+ * Example: A compliance score of 85 is stored as 0.85 on-chain,
+ * and read back as 85 in the application.
+ */
 const ANALYTICS_SCALE = 100;
 const DEFAULT_RPC_TIMEOUT_MS = 30_000;
 
@@ -344,7 +354,7 @@ function parseChainCommitment(
     asset: asString(raw.asset),
     amount: asString(raw.amount, "0"),
     status: normalizeStatus(raw.status),
-    complianceScore: asNumber(raw.complianceScore ?? raw.compliance_score),
+    complianceScore: asNumber(raw.complianceScore ?? raw.compliance_score) * ANALYTICS_SCALE,
     currentValue: asString(
       raw.currentValue ?? raw.current_value ?? raw.amount,
       "0",
@@ -417,7 +427,7 @@ function parseAttestationResult(
   return {
     attestationId,
     commitmentId,
-    complianceScore: asNumber(raw.complianceScore ?? raw.compliance_score),
+    complianceScore: asNumber(raw.complianceScore ?? raw.compliance_score) * ANALYTICS_SCALE,
     violation: Boolean(raw.violation),
     feeEarned: asString(raw.feeEarned ?? raw.fees_earned, "0"),
     recordedAt:
