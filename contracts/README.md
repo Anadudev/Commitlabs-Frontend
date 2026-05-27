@@ -40,8 +40,9 @@ create_commitment ──► fund_escrow ──► release            (matured: p
 | `fund_escrow(commitment_id)` | Transfer `amount` from owner into the contract (`Created → Funded`). |
 | `release(commitment_id, caller)` | Return principal to owner once matured (`Funded → Released`). |
 | `refund(commitment_id)` | Early-exit refund of principal minus `penalty_bps` (`Funded → Refunded`). |
-| `dispute(commitment_id, caller, reason)` | Freeze a funded commitment pending admin resolution. |
+| `dispute(commitment_id, caller, reason)` | Freeze a funded commitment pending admin resolution. The reason is automatically categorized. |
 | `resolve_dispute(commitment_id, release_to_owner)` | Admin-only settlement of a disputed commitment. |
+| `get_dispute(commitment_id)` | Read the dispute record for a commitment (category, reason, timestamp, initiator). |
 | `record_attestation(commitment_id, attestor, compliance_score)` | Record a 0–100 compliance score. |
 | `get_commitment(commitment_id)` | Read a single commitment record. |
 | `get_owner_commitments(owner)` | List commitment ids owned by an address. |
@@ -52,6 +53,35 @@ create_commitment ──► fund_escrow ──► release            (matured: p
 `CommitmentType`. The early-exit penalty is supplied at creation time in basis
 points (`penalty_bps`, max `10_000`) and is paid to the configured fee
 recipient on `refund` / adverse `resolve_dispute`.
+
+### Dispute categorization & reason storage
+
+When a commitment is disputed via `dispute(commitment_id, caller, reason)`, the
+contract automatically categorizes the reason string into a `DisputeReason` enum
+using keyword matching. This enables efficient on-chain classification and 
+off-chain indexing of disputes.
+
+#### DisputeReason categories
+
+| Category | Keywords | Example |
+| --- | --- | --- |
+| `ValueMismatch` | value, mismatch, amount, delivered | "actual value delivered was less than promised" |
+| `NonCompliance` | compliance, attestation, failed, violation | "compliance violation detected" |
+| `FraudSuspicion` | fraud, unauthorized, suspicious | "suspected fraudulent activity" |
+| `OperationalFailure` | operational, failure, delivery | "operational failure in delivery" |
+| `Other` | (default) | "some other unclassified reason" |
+
+#### Dispute record structure
+
+Each disputed commitment stores a `DisputeRecord` containing:
+- `reason_category`: The `DisputeReason` enum value (0–4)
+- `reason_text`: The free-form reason string provided by the initiator (for audit)
+- `disputed_at`: Ledger timestamp when the dispute was opened
+- `disputed_by`: Address that initiated the dispute (owner or admin)
+
+The dispute record is persisted on-chain and can be read at any time via
+`get_dispute(commitment_id)`, even after the dispute is resolved. This enables
+auditing, analytics, and off-chain verification of dispute history.
 
 ### Errors
 

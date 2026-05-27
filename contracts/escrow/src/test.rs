@@ -207,3 +207,246 @@ fn owner_index_tracks_commitments() {
     assert_eq!(ids.get(0).unwrap(), a);
     assert_eq!(ids.get(1).unwrap(), b);
 }
+
+#[test]
+fn dispute_categorizes_value_mismatch() {
+    let f = setup();
+    let owner = Address::generate(&f.env);
+    fund_owner(&f, &owner, 1_000);
+    let id = f
+        .client
+        .create_commitment(&owner, &f.asset, &1_000, &RiskProfile::Balanced, &30, &300);
+    f.client.fund_escrow(&id);
+
+    // Test value mismatch keyword detection.
+    f.client.dispute(
+        &id,
+        &owner,
+        &String::from_str(&f.env, "actual value delivered was less than promised"),
+    );
+
+    let dispute = f.client.get_dispute(&id);
+    assert!(dispute.is_some());
+    let record = dispute.unwrap();
+    assert_eq!(record.reason_category, DisputeReason::ValueMismatch);
+    assert_eq!(record.disputed_by, owner);
+}
+
+#[test]
+fn dispute_categorizes_non_compliance() {
+    let f = setup();
+    let owner = Address::generate(&f.env);
+    fund_owner(&f, &owner, 1_000);
+    let id = f
+        .client
+        .create_commitment(&owner, &f.asset, &1_000, &RiskProfile::Balanced, &30, &300);
+    f.client.fund_escrow(&id);
+
+    f.client.dispute(
+        &id,
+        &owner,
+        &String::from_str(&f.env, "compliance violation detected"),
+    );
+
+    let dispute = f.client.get_dispute(&id);
+    assert!(dispute.is_some());
+    let record = dispute.unwrap();
+    assert_eq!(record.reason_category, DisputeReason::NonCompliance);
+}
+
+#[test]
+fn dispute_categorizes_fraud_suspicion() {
+    let f = setup();
+    let owner = Address::generate(&f.env);
+    fund_owner(&f, &owner, 1_000);
+    let id = f
+        .client
+        .create_commitment(&owner, &f.asset, &1_000, &RiskProfile::Balanced, &30, &300);
+    f.client.fund_escrow(&id);
+
+    f.client.dispute(
+        &id,
+        &owner,
+        &String::from_str(&f.env, "suspicious fraud activity detected"),
+    );
+
+    let dispute = f.client.get_dispute(&id);
+    assert!(dispute.is_some());
+    let record = dispute.unwrap();
+    assert_eq!(record.reason_category, DisputeReason::FraudSuspicion);
+}
+
+#[test]
+fn dispute_categorizes_operational_failure() {
+    let f = setup();
+    let owner = Address::generate(&f.env);
+    fund_owner(&f, &owner, 1_000);
+    let id = f
+        .client
+        .create_commitment(&owner, &f.asset, &1_000, &RiskProfile::Balanced, &30, &300);
+    f.client.fund_escrow(&id);
+
+    f.client.dispute(
+        &id,
+        &owner,
+        &String::from_str(&f.env, "operational failure in delivery"),
+    );
+
+    let dispute = f.client.get_dispute(&id);
+    assert!(dispute.is_some());
+    let record = dispute.unwrap();
+    assert_eq!(record.reason_category, DisputeReason::OperationalFailure);
+}
+
+#[test]
+fn dispute_categorizes_other_reason() {
+    let f = setup();
+    let owner = Address::generate(&f.env);
+    fund_owner(&f, &owner, 1_000);
+    let id = f
+        .client
+        .create_commitment(&owner, &f.asset, &1_000, &RiskProfile::Balanced, &30, &300);
+    f.client.fund_escrow(&id);
+
+    f.client.dispute(
+        &id,
+        &owner,
+        &String::from_str(&f.env, "some unspecified reason"),
+    );
+
+    let dispute = f.client.get_dispute(&id);
+    assert!(dispute.is_some());
+    let record = dispute.unwrap();
+    assert_eq!(record.reason_category, DisputeReason::Other);
+}
+
+#[test]
+fn get_dispute_returns_persisted_reason_text() {
+    let f = setup();
+    let owner = Address::generate(&f.env);
+    fund_owner(&f, &owner, 1_000);
+    let id = f
+        .client
+        .create_commitment(&owner, &f.asset, &1_000, &RiskProfile::Balanced, &30, &300);
+    f.client.fund_escrow(&id);
+
+    let reason_text = String::from_str(&f.env, "detailed explanation of the issue");
+    f.client.dispute(&id, &owner, &reason_text);
+
+    let dispute = f.client.get_dispute(&id);
+    assert!(dispute.is_some());
+    let record = dispute.unwrap();
+    assert_eq!(record.reason_text, reason_text);
+}
+
+#[test]
+fn dispute_stores_timestamp_and_initiator() {
+    let f = setup();
+    let owner = Address::generate(&f.env);
+    let initiator = Address::generate(&f.env);
+    fund_owner(&f, &owner, 1_000);
+    let id = f
+        .client
+        .create_commitment(&owner, &f.asset, &1_000, &RiskProfile::Balanced, &30, &300);
+    f.client.fund_escrow(&id);
+
+    let initial_timestamp = f.env.ledger().timestamp();
+    f.client.dispute(
+        &id,
+        &initiator,
+        &String::from_str(&f.env, "value mismatch"),
+    );
+
+    let dispute = f.client.get_dispute(&id);
+    assert!(dispute.is_some());
+    let record = dispute.unwrap();
+    assert_eq!(record.disputed_by, initiator);
+    assert!(record.disputed_at >= initial_timestamp);
+}
+
+#[test]
+fn get_dispute_returns_none_for_undisputed_commitment() {
+    let f = setup();
+    let owner = Address::generate(&f.env);
+    fund_owner(&f, &owner, 1_000);
+    let id = f
+        .client
+        .create_commitment(&owner, &f.asset, &1_000, &RiskProfile::Balanced, &30, &300);
+    f.client.fund_escrow(&id);
+
+    let dispute = f.client.get_dispute(&id);
+    assert!(dispute.is_none());
+}
+
+#[test]
+fn admin_can_open_dispute() {
+    let f = setup();
+    let owner = Address::generate(&f.env);
+    fund_owner(&f, &owner, 1_000);
+    let id = f
+        .client
+        .create_commitment(&owner, &f.asset, &1_000, &RiskProfile::Balanced, &30, &300);
+    f.client.fund_escrow(&id);
+
+    // Admin initiates dispute.
+    f.client.dispute(
+        &id,
+        &f.admin,
+        &String::from_str(&f.env, "value mismatch"),
+    );
+
+    let dispute = f.client.get_dispute(&id);
+    assert!(dispute.is_some());
+    let record = dispute.unwrap();
+    assert_eq!(record.disputed_by, f.admin);
+}
+
+#[test]
+fn dispute_reason_case_insensitive() {
+    let f = setup();
+    let owner = Address::generate(&f.env);
+    fund_owner(&f, &owner, 1_000);
+    let id = f
+        .client
+        .create_commitment(&owner, &f.asset, &1_000, &RiskProfile::Balanced, &30, &300);
+    f.client.fund_escrow(&id);
+
+    f.client.dispute(
+        &id,
+        &owner,
+        &String::from_str(&f.env, "COMPLIANCE VIOLATION DETECTED"),
+    );
+
+    let dispute = f.client.get_dispute(&id);
+    assert!(dispute.is_some());
+    let record = dispute.unwrap();
+    assert_eq!(record.reason_category, DisputeReason::NonCompliance);
+}
+
+#[test]
+fn resolve_dispute_preserves_dispute_record() {
+    let f = setup();
+    let owner = Address::generate(&f.env);
+    fund_owner(&f, &owner, 1_000);
+    let id = f
+        .client
+        .create_commitment(&owner, &f.asset, &1_000, &RiskProfile::Balanced, &30, &300);
+    f.client.fund_escrow(&id);
+
+    let reason = String::from_str(&f.env, "value mismatch issue");
+    f.client.dispute(&id, &owner, &reason);
+
+    // Dispute record should exist before resolution.
+    let dispute_before = f.client.get_dispute(&id);
+    assert!(dispute_before.is_some());
+
+    // Admin resolves the dispute.
+    f.client.resolve_dispute(&id, &true);
+
+    // Dispute record should still be accessible after resolution.
+    let dispute_after = f.client.get_dispute(&id);
+    assert!(dispute_after.is_some());
+    let record = dispute_after.unwrap();
+    assert_eq!(record.reason_text, reason);
+    assert_eq!(record.reason_category, DisputeReason::ValueMismatch);
+}

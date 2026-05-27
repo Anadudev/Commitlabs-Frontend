@@ -34,6 +34,8 @@ pub enum DataKey {
     OwnerIndex(Address),
     /// Protocol fee recipient.
     FeeRecipient,
+    /// Dispute record for a commitment, keyed by commitment id.
+    Dispute(u64),
 }
 
 /// Risk profile chosen at creation time. Determines the early-exit penalty
@@ -60,6 +62,38 @@ pub enum EscrowStatus {
     Refunded,
     /// Under dispute; transfers are frozen.
     Disputed,
+}
+
+/// Categorized dispute reason enum. Enables efficient on-chain classification
+/// and off-chain indexing of disputes by category.
+#[contracttype]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DisputeReason {
+    /// Actual value delivered did not match the promised or agreed value.
+    ValueMismatch = 0,
+    /// Reported compliance violation or attestation failure.
+    NonCompliance = 1,
+    /// Suspected fraudulent activity or unauthorized access.
+    FraudSuspicion = 2,
+    /// Operational failure or delivery failure.
+    OperationalFailure = 3,
+    /// Other reasons not covered by the above categories.
+    Other = 4,
+}
+
+/// Dispute record: stores both the categorized reason and the free-form
+/// reason string for audit and detailed context.
+#[contracttype]
+#[derive(Clone)]
+pub struct DisputeRecord {
+    /// Categorized reason for the dispute.
+    pub reason_category: DisputeReason,
+    /// Free-form reason string for detailed explanation and audit.
+    pub reason_text: String,
+    /// Timestamp when the dispute was opened.
+    pub disputed_at: u64,
+    /// Address that initiated the dispute (owner or admin).
+    pub disputed_by: Address,
 }
 
 /// A single escrow / commitment record.
@@ -273,6 +307,7 @@ impl EscrowContract {
 
     /// Flag a funded commitment as disputed, freezing release/refund until an
     /// admin resolves it. Either the owner or the admin may open a dispute.
+    /// The reason string is automatically categorized based on keywords.
     pub fn dispute(env: Env, commitment_id: u64, caller: Address, reason: String) -> Result<(), Error> {
         Self::require_init(&env)?;
         caller.require_auth();
@@ -290,11 +325,29 @@ impl EscrowContract {
             return Err(Error::InvalidState);
         }
 
+        // Categorize the dispute reason based on keywords in the reason string.
+        let reason_category = Self::categorize_dispute_reason(&reason);
+        let now = env.ledger().timestamp();
+
+        let dispute_record = DisputeRecord {
+            reason_category,
+            reason_text: reason.clone(),
+            disputed_at: now,
+            disputed_by: caller.clone(),
+        };
+
         c.status = EscrowStatus::Disputed;
         Self::save(&env, &c);
 
-        env.events()
-            .publish((Symbol::new(&env, "dispute"), caller), (commitment_id, reason));
+        // Persist the dispute record.
+        env.storage()
+            .persistent()
+            .set(&DataKey::Dispute(commitment_id), &dispute_record);
+
+        env.events().publish(
+            (Symbol::new(&env, "dispute"), caller),
+            (commitment_id, reason_category as u32, reason),
+        );
         Ok(())
     }
 
@@ -374,6 +427,14 @@ impl EscrowContract {
             .unwrap_or_else(|| Vec::new(&env))
     }
 
+    /// Retrieve the dispute record for a commitment. Returns `None` if no
+    /// dispute has been recorded.
+    pub fn get_dispute(env: Env, commitment_id: u64) -> Option<DisputeRecord> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Dispute(commitment_id))
+    }
+
     // ── Internal helpers ────────────────────────────────────────────────────
 
     fn require_init(env: &Env) -> Result<(), Error> {
@@ -425,6 +486,29 @@ impl EscrowContract {
             .get(&DataKey::Token)
             .expect("token not configured");
         soroban_sdk::token::Client::new(env, &token)
+    }
+
+    /// Categorize a free-form dispute reason string into a DisputeReason enum.
+    /// Uses keyword matching to detect common dispute categories.
+    fn categorize_dispute_reason(reason: &String) -> DisputeReason {
+        let reason_lower = reason.to_lowercase();
+        
+        // Check for keywords in order of specificity.
+        if reason_lower.contains("value") || reason_lower.contains("mismatch") 
+            || reason_lower.contains("amount") || reason_lower.contains("delivered") {
+            DisputeReason::ValueMismatch
+        } else if reason_lower.contains("compliance") || reason_lower.contains("attestation")
+            || reason_lower.contains("failed") || reason_lower.contains("violation") {
+            DisputeReason::NonCompliance
+        } else if reason_lower.contains("fraud") || reason_lower.contains("unauthorized")
+            || reason_lower.contains("suspicious") || reason_lower.contains("suspicious") {
+            DisputeReason::FraudSuspicion
+        } else if reason_lower.contains("operational") || reason_lower.contains("failure")
+            || reason_lower.contains("delivery") {
+            DisputeReason::OperationalFailure
+        } else {
+            DisputeReason::Other
+        }
     }
 }
 
