@@ -151,6 +151,57 @@ curl -X POST http://localhost:3000/api/commitments/abc123/early-exit \
 
 ---
 
+## `GET /api/attestations/recent`
+
+Returns the most recent attestations sorted by `observedAt` descending, with
+page-based pagination metadata.
+
+- **Query parameters**:
+    - `page`: (integer, optional) Page number (1-based). Must be ≥ 1. Defaults to 1.
+    - `pageSize`: (integer, optional) Items per page. Must be 1–100. Defaults to 10.
+    - `ownerAddress`: (string, optional) Filter by commitment owner address. Requires a valid `Authorization: Bearer <token>` header.
+- **Response**: `200 OK` with attestation list and pagination meta.
+- **Error codes**:
+    - `400 VALIDATION_ERROR` — `page` or `pageSize` out of range, or `ownerAddress` is blank.
+    - `401 UNAUTHORIZED` — `ownerAddress` provided without a valid Bearer token.
+    - `429 TOO_MANY_REQUESTS` — Rate limit exceeded.
+
+### Example
+
+```bash
+curl 'http://localhost:3000/api/attestations/recent?page=1&pageSize=2'
+```
+
+```json
+{
+  "success": true,
+  "data": {
+    "attestations": [
+      { "id": "ATT-005", "commitmentId": "CMT-005", "observedAt": "2026-04-24T10:00:00Z" },
+      { "id": "ATT-004", "commitmentId": "CMT-004", "observedAt": "2026-04-23T10:00:00Z" }
+    ],
+    "total": 5
+  },
+  "meta": {
+    "page": 1,
+    "pageSize": 2,
+    "total": 5,
+    "totalPages": 3,
+    "hasNextPage": true,
+    "hasPrevPage": false
+  }
+}
+```
+
+Filtered by owner (requires authentication):
+
+```bash
+curl 'http://localhost:3000/api/attestations/recent?ownerAddress=GAAA...WHF' \
+     -H 'Authorization: Bearer <token>'
+```
+
+---
+
 ## `POST /api/attestations`
 
 Records an attestation event.  Stub implementation logs

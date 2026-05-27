@@ -227,6 +227,86 @@ paths:
               schema:
                 $ref: '#/components/schemas/SuccessEnvelope'
 
+  /api/attestations/recent:
+    get:
+      summary: Recent Attestations
+      description: >
+        Returns recent attestations sorted by timestamp descending, with
+        page-based pagination metadata. Optionally filter by commitment owner
+        address (requires Bearer token authentication when `ownerAddress` is
+        provided).
+      security:
+        - {}
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          description: Page number (1-based). Must be ≥ 1. Defaults to 1.
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: pageSize
+          in: query
+          description: Number of items per page. Must be 1–100. Defaults to 10.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+        - name: ownerAddress
+          in: query
+          description: Filter attestations by commitment owner address. Requires a valid Bearer token.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Paginated list of recent attestations, sorted newest-first.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          attestations:
+                            type: array
+                            items:
+                              type: object
+                          total:
+                            type: integer
+                            description: Total number of matching attestations (before pagination).
+                      meta:
+                        type: object
+                        properties:
+                          page: { type: integer }
+                          pageSize: { type: integer }
+                          total: { type: integer }
+                          totalPages: { type: integer }
+                          hasNextPage: { type: boolean }
+                          hasPrevPage: { type: boolean }
+              example:
+                success: true
+                data:
+                  attestations: []
+                  total: 0
+                meta:
+                  page: 1
+                  pageSize: 10
+                  total: 0
+                  totalPages: 1
+                  hasNextPage: false
+                  hasPrevPage: false
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
   /api/attestations:
     get:
       summary: List Attestations
