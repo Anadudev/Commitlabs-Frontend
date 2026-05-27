@@ -72,5 +72,47 @@ cargo test            # run unit tests in escrow/src/test.rs
 stellar contract build
 ```
 
-> Note: this workspace is scaffolded to ground the contract issue backlog.
-> Verify a local toolchain before deploying to testnet/mainnet.
+## Contract upgrade flow
+
+The escrow contract now supports an admin-gated upgrade path through the
+`upgrade(new_wasm_hash: BytesN<32>)` entrypoint. Only the configured admin
+stored at `DataKey::Admin` may authorize upgrades.
+
+1. Build the updated contract WASM:
+
+```bash
+cd contracts/escrow
+cargo build --release --target wasm32-unknown-unknown
+```
+
+2. Compute the WASM hash from the built artifact. For example:
+
+```bash
+wasm-util hash target/wasm32-unknown-unknown/release/commitlabs-escrow.wasm
+```
+
+3. Call the upgrade entrypoint with the new hash. The transaction must be
+   signed by the admin address currently stored in the escrow contract.
+
+4. Confirm the `upgrade` event was emitted and the contract continues to
+   operate normally.
+
+### Security model
+
+- `DataKey::Admin` is the single upgrade authority stored in contract state.
+- `upgrade` reads the admin address from storage and calls
+  `admin.require_auth()` before any state changes.
+- Only an admin-signed transaction may proceed to `env.deployer().update_current_contract_wasm`.
+- A zero-valued WASM hash is rejected as invalid and returns `InvalidWasmHash`.
+- If admin storage is missing, the call returns `NotInitialized`.
+
+### Safe upgrade notes
+
+- Verify the new WASM hash against your reproducible build output.
+- Do not issue upgrades from untrusted tooling or without an audit trail.
+- The contract storage remains intact across upgrades; only the implementation changes.
+- Keep the admin key securely guarded and use this upgrade path sparingly.
+
+> Note: the upgrade entrypoint is intentionally minimal to reduce attack surface.
+
+> Note: this documentation describes the full operational flow for the new admin-gated upgrade pattern.

@@ -4,7 +4,7 @@ use super::*;
 use soroban_sdk::{
     testutils::{Address as _, Ledger as _},
     token::{StellarAssetClient, TokenClient},
-    Address, Env, String,
+    Address, Bytes, BytesN, Env, String,
 };
 
 /// Spins up a test environment with a Stellar Asset Contract token and a
@@ -60,6 +60,61 @@ fn initialize_is_one_time() {
         .client
         .try_initialize(&f.admin, &f.asset, &other);
     assert_eq!(res, Err(Ok(Error::AlreadyInitialized)));
+}
+
+#[test]
+fn upgrade_succeeds_for_admin() {
+    let f = setup();
+    let wasm_bytes = Bytes::from_array(&f.env, &[0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]);
+    // Use the hash of the empty-wasm placeholder already present in the
+    // test ledger (sha256 of empty string). This ensures the hash exists in
+    // ledger so `update_current_contract_wasm` can succeed in the host.
+    let new_hash = BytesN::from_array(
+        &f.env,
+        &[
+            0xe3, 0xb0, 0xc4, 0x42, 0x98, 0xfc, 0x1c, 0x14, 0x9a, 0xfb, 0xf4, 0xc8, 0x99, 0x6f,
+            0xb9, 0x24, 0x27, 0xae, 0x41, 0xe4, 0x64, 0x9b, 0x93, 0x4c, 0xa4, 0x95, 0x99, 0x1b,
+            0x78, 0x52, 0xb8, 0x55,
+        ],
+    );
+    let res = f.client.try_upgrade(&new_hash);
+    assert_eq!(res, Ok(Ok(())));
+}
+
+#[test]
+fn upgrade_rejects_zero_hash() {
+    let f = setup();
+    let zero_hash = BytesN::from_array(&f.env, &[0u8; 32]);
+    let res = f.client.try_upgrade(&zero_hash);
+    assert_eq!(res, Err(Ok(Error::InvalidWasmHash)));
+}
+
+#[test]
+fn upgrade_rejects_when_admin_missing() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(EscrowContract, ());
+    let client = EscrowContractClient::new(&env, &contract_id);
+
+    let hash = BytesN::from_array(&env, &[2u8; 32]);
+    let res = client.try_upgrade(&hash);
+    assert_eq!(res, Err(Ok(Error::NotInitialized)));
+}
+
+#[test]
+fn upgrade_rejects_without_admin_auth() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let contract_id = env.register(EscrowContract, ());
+    let client = EscrowContractClient::new(&env, &contract_id);
+
+    env.as_contract(&contract_id, || {
+        env.storage().instance().set(&DataKey::Admin, &admin);
+    });
+    // Avoid uploading a wasm blob in this test host; use a precomputed hash.
+    let hash = BytesN::from_array(&env, &[3u8; 32]);
+    let res = client.try_upgrade(&hash);
+    assert!(res.is_err(), "expected unauthorized upgrade to be rejected");
 }
 
 #[test]

@@ -15,7 +15,7 @@
 //! `fund_escrow`, `release`, `refund`, and `dispute`.
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, Address, Env, String, Symbol, Vec,
+    contract, contracterror, contractimpl, contracttype, Address, BytesN, Env, String, Symbol, Vec,
 };
 
 /// Storage keys for persistent contract state.
@@ -96,6 +96,7 @@ pub enum Error {
     NotMatured = 7,
     InvalidDuration = 8,
     PenaltyTooHigh = 9,
+    InvalidWasmHash = 10,
 }
 
 const MAX_PENALTY_BPS: u32 = 10_000;
@@ -338,6 +339,59 @@ impl EscrowContract {
             (commitment_id, release_to_owner, paid),
         );
         Ok(paid)
+    }
+
+    /// Upgrade the escrow contract to a new WASM implementation.
+    ///
+    /// Only the configured admin may perform contract upgrades. This uses the
+    /// stored `DataKey::Admin` authorization principal and then updates the
+    /// current contract WASM through the deployer. The new wasm hash must be a
+    /// valid 32-byte contract hash and cannot be the zero hash.
+    pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) -> Result<(), Error> {
+        // Ensure the contract has been initialized and admin is present.
+        Self::require_init(&env)?;
+
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+
+        // Admin must sign the upgrade transaction.
+        // Authorization model:
+        // - The admin address is stored in contract instance storage under
+        //   `DataKey::Admin` and is the single authority allowed to perform
+        //   upgrades.
+        // - We read the admin from storage at runtime (not hardcoded), then
+        //   require the admin to sign the transaction with `require_auth()`.
+        // - `require_auth()` enforces that the calling transaction is
+        //   authorized by the admin signature. If the admin key does not
+        //   authorize the transaction, execution stops here and no upgrade
+        //   will be performed.
+        // - This keeps the upgrade surface minimal: only a signed admin
+        //   invocation can reach `update_current_contract_wasm`.
+        admin.require_auth();
+
+        // Prevent a zero-hash upgrade which is not a valid deployed contract.
+        // Rejecting the zero hash avoids accidentally setting the contract's
+        // implementation to an invalid/empty WASM.
+        let zero_hash = BytesN::from_array(&env, &[0u8; 32]);
+        if new_wasm_hash == zero_hash {
+            return Err(Error::InvalidWasmHash);
+        }
+
+        // Perform the upgrade via the deployer. This is the critical action
+        // that swaps the current contract implementation to the provided
+        // `new_wasm_hash`. Because we've already enforced `admin.require_auth()`
+        // above, this call is safe under the contract's upgrade authorization
+        // model: only an admin-signed transaction can reach this point.
+        env.deployer().update_current_contract_wasm(new_wasm_hash.clone());
+
+        // Emit an event that an upgrade occurred. Observers can verify the
+        // new wasm hash and audit who performed the upgrade.
+        env.events().publish((Symbol::new(&env, "upgrade"), admin), new_wasm_hash);
+
+        Ok(())
     }
 
     /// Record a compliance attestation (0..=100) against a commitment. Mirrors
