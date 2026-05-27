@@ -4,7 +4,7 @@ import { createCorsOptionsHandler, type CorsRoutePolicy } from '@/lib/backend/co
 import { TooManyRequestsError } from '@/lib/backend/errors';
 import { getClientIp } from '@/lib/backend/getClientIp';
 import { logEarlyExit } from '@/lib/backend/logger';
-import { checkRateLimit } from '@/lib/backend/rateLimit';
+import { checkRateLimit, getRateLimitWindowSeconds } from '@/lib/backend/rateLimit';
 import { withApiHandler } from '@/lib/backend/withApiHandler';
 
 const COMMITMENT_EARLY_EXIT_CORS_POLICY = {
@@ -16,7 +16,11 @@ export const OPTIONS = createCorsOptionsHandler(COMMITMENT_EARLY_EXIT_CORS_POLIC
 export const POST = withApiHandler(async (req: NextRequest, { params }, correlationId) => {
   const ip = getClientIp(req);
   if (!(await checkRateLimit(ip, 'api/commitments/early-exit'))) {
-    throw new TooManyRequestsError();
+    throw new TooManyRequestsError(
+      'Too many requests. Please try again later.',
+      undefined,
+      getRateLimitWindowSeconds('api/commitments/early-exit'),
+    );
   }
 
   let body: Record<string, unknown> = {};

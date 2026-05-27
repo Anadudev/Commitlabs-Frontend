@@ -7,7 +7,7 @@ import { ConflictError, NotFoundError, TooManyRequestsError, ValidationError } f
 import { getClientIp } from '@/lib/backend/getClientIp';
 import { getCommitmentFromChain, settleCommitmentOnChain } from '@/lib/backend/services/contracts';
 import { logCommitmentSettled } from '@/lib/backend/logger';
-import { checkRateLimit } from '@/lib/backend/rateLimit';
+import { checkRateLimit, getRateLimitWindowSeconds } from '@/lib/backend/rateLimit';
 import { withApiHandler } from '@/lib/backend/withApiHandler';
 
 const SettleRequestSchema = z.object({
@@ -25,7 +25,11 @@ export const POST = withApiHandler(async (req: NextRequest, { params }, correlat
 
   const ip = getClientIp(req);
   if (!(await checkRateLimit(ip, 'api/commitments/settle'))) {
-    throw new TooManyRequestsError();
+    throw new TooManyRequestsError(
+      'Too many requests. Please try again later.',
+      undefined,
+      getRateLimitWindowSeconds('api/commitments/settle'),
+    );
   }
 
   const id = params.id;
