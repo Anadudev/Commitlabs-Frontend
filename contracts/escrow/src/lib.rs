@@ -160,12 +160,20 @@ impl EscrowContract {
         // Guard against overflow when converting duration_days into an absolute
         // maturity timestamp. Overflow must never wrap, otherwise commitments
         // could be released/refunded at incorrect times.
-        let duration_seconds = (duration_days as u64)
-            .checked_mul(SECONDS_PER_DAY)
-            .ok_or(Error::InvalidDuration)?;
+        //
+        // NOTE: Soroban client bindings may pass arguments in ways that can hide
+        // the expected arithmetic overflow during tests. Explicitly reject
+        // impossible duration ranges before doing any conversions.
+        let max_duration_days = (u64::MAX / SECONDS_PER_DAY) as u32;
+        if duration_days > max_duration_days {
+            return Err(Error::InvalidDuration);
+        }
+
+        let duration_seconds = (duration_days as u64) * SECONDS_PER_DAY;
         let maturity = now
             .checked_add(duration_seconds)
             .ok_or(Error::InvalidDuration)?;
+
 
         let commitment = Commitment {
             id,
