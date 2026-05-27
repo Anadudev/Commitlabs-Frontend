@@ -221,11 +221,13 @@ impl EscrowContract {
             return Err(Error::NotMatured);
         }
 
-        let token = Self::token_client(&env);
-        token.transfer(&env.current_contract_address(), &c.owner, &c.amount);
-
+        // Effects: Update state before interactions to prevent reentrancy
         c.status = EscrowStatus::Released;
         Self::save(&env, &c);
+
+        // Interactions: External token transfers
+        let token = Self::token_client(&env);
+        token.transfer(&env.current_contract_address(), &c.owner, &c.amount);
 
         env.events().publish(
             (Symbol::new(&env, "release"), c.owner.clone()),
@@ -249,6 +251,11 @@ impl EscrowContract {
         let penalty = (c.amount * c.penalty_bps as i128) / MAX_PENALTY_BPS as i128;
         let refund_amount = c.amount - penalty;
 
+        // Effects: Update state before interactions to prevent reentrancy
+        c.status = EscrowStatus::Refunded;
+        Self::save(&env, &c);
+
+        // Interactions: External token transfers
         let token = Self::token_client(&env);
         let contract = env.current_contract_address();
         if penalty > 0 {
@@ -260,9 +267,6 @@ impl EscrowContract {
             token.transfer(&contract, &fee_recipient, &penalty);
         }
         token.transfer(&contract, &c.owner, &refund_amount);
-
-        c.status = EscrowStatus::Refunded;
-        Self::save(&env, &c);
 
         env.events().publish(
             (Symbol::new(&env, "refund"), c.owner.clone()),
@@ -318,20 +322,35 @@ impl EscrowContract {
             return Err(Error::InvalidState);
         }
 
-        let token = Self::token_client(&env);
-        let contract = env.current_contract_address();
         let paid;
+        let penalty;
+
         if release_to_owner {
-            token.transfer(&contract, &c.owner, &c.amount);
             c.status = EscrowStatus::Released;
             paid = c.amount;
+            penalty = 0;
         } else {
-            let penalty = (c.amount * c.penalty_bps as i128) / MAX_PENALTY_BPS as i128;
-            paid = c.amount - penalty;
-            token.transfer(&contract, &c.owner, &paid);
             c.status = EscrowStatus::Refunded;
+            penalty = (c.amount * c.penalty_bps as i128) / MAX_PENALTY_BPS as i128;
+            paid = c.amount - penalty;
         }
+
+        // Effects: Update state before interactions to prevent reentrancy
         Self::save(&env, &c);
+
+        // Interactions: External token transfers
+        let token = Self::token_client(&env);
+        let contract = env.current_contract_address();
+
+        if penalty > 0 {
+            let fee_recipient: Address = env
+                .storage()
+                .instance()
+                .get(&DataKey::FeeRecipient)
+                .ok_or(Error::NotInitialized)?;
+            token.transfer(&contract, &fee_recipient, &penalty);
+        }
+        token.transfer(&contract, &c.owner, &paid);
 
         env.events().publish(
             (Symbol::new(&env, "resolve_dispute"), admin),

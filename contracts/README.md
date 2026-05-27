@@ -23,6 +23,15 @@ The escrow contract manages the on-chain lifecycle of a liquidity commitment.
 Assets are deposited under a chosen risk profile and held in escrow until the
 commitment matures, is exited early, or is disputed.
 
+### Security: Checks-Effects-Interactions
+
+To prevent reentrancy and similar vulnerabilities when interacting with external tokens, the escrow contract enforces the **Checks-Effects-Interactions** pattern. Specifically, within operations that transfer tokens (`release`, `refund`, and `resolve_dispute`):
+1. **Checks**: Validate caller authorization, commitment status, and ledger time.
+2. **Effects**: Update the commitment state (e.g., transition `Funded` -> `Released` or `Refunded`) and persist it to storage.
+3. **Interactions**: Perform cross-contract calls to the asset's token contract.
+
+This strict ordering guarantees the contract's internal state is fully resolved before execution control is temporarily handed over to external logic.
+
 ### Lifecycle
 
 ```
