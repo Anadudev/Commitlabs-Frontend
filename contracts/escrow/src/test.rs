@@ -81,6 +81,19 @@ fn create_and_fund_locks_funds() {
 }
 
 #[test]
+fn fund_fails_insufficient_balance() {
+    let f = setup();
+    let owner = Address::generate(&f.env);
+    // Do NOT fund the owner. Attempting to fund the escrow should return
+    // our explicit InsufficientBalance contract error rather than panicking.
+    let id = f
+        .client
+        .create_commitment(&owner, &f.asset, &1_000, &RiskProfile::Balanced, &30, &300);
+    let res = f.client.try_fund_escrow(&id);
+    assert_eq!(res, Err(Ok(Error::InsufficientBalance)));
+}
+
+#[test]
 fn release_after_maturity_returns_principal() {
     let f = setup();
     let owner = Address::generate(&f.env);

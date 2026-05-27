@@ -60,6 +60,10 @@ Stable numeric error codes (`#[contracterror]`) are surfaced so the backend
 `AlreadyInitialized`, `NotInitialized`, `NotFound`, `Unauthorized`,
 `InvalidAmount`, `InvalidState`, `NotMatured`, `InvalidDuration`,
 `PenaltyTooHigh`.
+Additionally, `InsufficientBalance` is returned when the owner does not have
+enough token balance or allowance to fund an escrow. This check is performed
+before attempting the token transfer so callers receive a clear contract
+error instead of an opaque token panic.
 
 ## Build & test
 
