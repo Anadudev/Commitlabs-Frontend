@@ -153,127 +153,22 @@ Yield is funded by the admin through `deposit_yield_pool(admin, amount)`. The co
 points (`penalty_bps`, max `10_000`) and is paid to the configured fee
 recipient on `refund` / adverse `resolve_dispute`.
 
-### Default penalties per risk profile
+### Refund math model and invariants
 
-Default penalties are configured once at initialization and automatically applied
-to commitments created via `create_commitment_with_default_penalty()`. This
-simplifies commitment creation when consistent penalty tiers are desired.
+Refunds are computed with integer basis-point math:
 
-#### Backend-aligned defaults
+- `penalty = floor(amount * penalty_bps / 10_000)`
+- `refund = amount - penalty`
 
-The contract defaults match the CommitLabs backend tier structure:
+This keeps the split stable and preserves the invariant `refund + penalty == amount`
+for valid principal amounts. The contract enforces `0 <= penalty_bps <= 10_000`
+and uses checked arithmetic so overflowing intermediate multiplication is rejected
+instead of wrapping. Boundary cases are documented in the contract tests:
 
-| Risk Profile | Default Penalty | Basis Points | Use Case |
-| --- | --- | --- | --- |
-| Safe | 2% | 200 | Low-risk commitments with minimal early-exit cost |
-| Balanced | 3% | 300 | Medium-risk commitments with moderate early-exit cost |
-| Aggressive | 5% | 500 | High-risk commitments with significant early-exit cost |
-
-#### Two API patterns
-
-The contract provides two ways to create commitments:
-
-1. **Explicit penalty** (`create_commitment`): Set a specific penalty per commitment
-   - Allows per-commitment customization
-   - Overrides default if needed
-   - Useful for custom deal terms
-
-2. **Default penalty** (`create_commitment_with_default_penalty`): Use the profile default
-   - Simplifies API calls
-   - Ensures consistency across commitments
-   - No penalty parameter needed
-
-Example:
-```rust
-// Use default penalty (e.g., 3% for Balanced risk)
-let id = contract.create_commitment_with_default_penalty(
-    &owner, &asset, &1000, &RiskProfile::Balanced, &30
-)?;
-
-// Or override with custom penalty (e.g., 2% instead of default 3%)
-let id = contract.create_commitment(
-    &owner, &asset, &1000, &RiskProfile::Balanced, &30, &200
-)?;
-```
-
-#### Querying defaults
-
-Use `get_default_penalty(risk)` to retrieve the current default for a risk profile.
-Useful for frontend/backend UI and verification.
-
-### Dispute categorization & reason storage
-
-When a commitment is disputed via `dispute(commitment_id, caller, reason)`, the
-contract automatically categorizes the reason string into a `DisputeReason` enum
-using keyword matching. This enables efficient on-chain classification and 
-off-chain indexing of disputes.
-
-#### DisputeReason categories
-
-| Category | Keywords | Example |
-| --- | --- | --- |
-| `ValueMismatch` | value, mismatch, amount, delivered | "actual value delivered was less than promised" |
-| `NonCompliance` | compliance, attestation, failed, violation | "compliance violation detected" |
-| `FraudSuspicion` | fraud, unauthorized, suspicious | "suspected fraudulent activity" |
-| `OperationalFailure` | operational, failure, delivery | "operational failure in delivery" |
-| `Other` | (default) | "some other unclassified reason" |
-
-#### Dispute record structure
-
-Each disputed commitment stores a `DisputeRecord` containing:
-- `reason_category`: The `DisputeReason` enum value (0–4)
-- `reason_text`: The free-form reason string provided by the initiator (for audit)
-- `disputed_at`: Ledger timestamp when the dispute was opened
-- `disputed_by`: Address that initiated the dispute (owner or admin)
-
-The dispute record is persisted on-chain and can be read at any time via
-`get_dispute(commitment_id)`, even after the dispute is resolved. This enables
-auditing, analytics, and off-chain verification of dispute history.
-
-### Partial early-exit (`refund_partial`)
-
-`refund_partial(commitment_id, amount)` lets an owner exit a fraction of their
-locked principal before maturity. Only the withdrawn portion is penalised;
-the remainder stays escrowed under the same commitment.
-
-- `amount` must be > 0 and ≤ `Commitment.amount`.
-- `penalty_bps` is applied only to `amount`: `penalty = amount * penalty_bps / 10_000`.
-- `Commitment.amount` is reduced by `amount` in storage.
-- If `amount` equals the full stored principal the commitment transitions to
-  `Refunded`; otherwise it stays `Funded`.
-- Blocked when the commitment is in `Violated` status (`CommitmentViolated` error).
-
-```
-refund_partial(id, 400)   # withdraw 400 out of 1 000 at 10% penalty
-  → net to owner: 360, fee: 40, remaining escrowed: 600 (status: Funded)
-
-refund_partial(id, 1000)  # withdraw all remaining principal
-  → net to owner: 950, fee: 50, remaining: 0 (status: Refunded)
-```
-
-### Violation auto-trigger
-
-A configurable compliance score threshold controls automatic violation of funded
-commitments. When `record_attestation` records a score **strictly below** the
-threshold for a `Funded` commitment, the status transitions to `Violated` and
-a `commitment_violated` event is emitted.
-
-- `set_violation_threshold(threshold)` — admin-only, clamps to 0–100. A value
-  of `0` (default) disables auto-violation entirely.
-- `get_violation_threshold()` — public read of the current threshold.
-- `release`, `refund`, and `refund_partial` all return `CommitmentViolated`
-  while the commitment is in the `Violated` state.
-- A score **equal to** the threshold does **not** trigger a violation; only
-  scores **strictly below** do.
-- Auto-violation only applies to `Funded` commitments. Attestations on
-  `Created`, `Released`, `Refunded`, or `Disputed` commitments are recorded but
-  do not change status.
-
-```
-set_violation_threshold(60)   # violate when score < 60
-record_attestation(id, 59)    # → status: Violated, event emitted
-record_attestation(id, 60)    # → status unchanged (Funded)
-```
+- `penalty_bps = 0` → full principal refund, zero penalty
+- `penalty_bps = 10_000` → zero refund, full principal penalty
+- tiny amounts (`1`, `2`, `3`, etc.) remain non-negative and partition cleanly
+- seeded deterministic property tests cover randomized mid-range values and overflow guards
 
 ### Errors
 

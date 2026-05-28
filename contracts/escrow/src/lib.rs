@@ -591,14 +591,10 @@ impl EscrowContract {
             return Err(Error::InvalidAmount);
         }
 
-        // Apply penalty to the withdrawn portion only.
-        let penalty_mul = amount
-            .checked_mul(c.penalty_bps as i128)
-            .ok_or(Error::InvalidAmount)?;
-        let penalty = penalty_mul / MAX_PENALTY_BPS as i128;
-        let refund_amount = amount
-            .checked_sub(penalty)
-            .ok_or(Error::InvalidAmount)?;
+        // Basis points represent a fraction out of 10_000. The penalty is the
+        // floor of `amount * penalty_bps / 10_000`, so refund + penalty always
+        // partitions the original principal while staying within checked math.
+        let (penalty, refund_amount) = Self::compute_refund_amount(c.amount, c.penalty_bps)?;
 
         // Update the stored principal; remainder stays in escrow.
         let remaining = c
@@ -749,14 +745,16 @@ impl EscrowContract {
         // Interactions: External token transfers
         let token = Self::token_client(&env);
         let contract = env.current_contract_address();
-
-        if penalty > 0 {
-            let fee_recipient: Address = env
-                .storage()
-                .instance()
-                .get(&DataKey::FeeRecipient)
-                .ok_or(Error::NotInitialized)?;
-            token.transfer(&contract, &fee_recipient, &penalty);
+        let paid;
+        if release_to_owner {
+            token.transfer(&contract, &c.owner, &c.amount);
+            c.status = EscrowStatus::Released;
+            paid = c.amount;
+        } else {
+            let (_, refund_amount) = Self::compute_refund_amount(c.amount, c.penalty_bps)?;
+            paid = refund_amount;
+            token.transfer(&contract, &c.owner, &paid);
+            c.status = EscrowStatus::Refunded;
         }
         token.transfer(&contract, &c.owner, &paid);
 
@@ -1046,13 +1044,26 @@ impl EscrowContract {
         Ok(())
     }
 
-    /// Retrieve the default penalty for a risk profile (internal use).
-    /// Returns NotInitialized if the contract has not been initialized.
-    fn get_default_penalty_internal(env: &Env, risk: RiskProfile) -> Result<u32, Error> {
-        env.storage()
-            .instance()
-            .get(&DataKey::DefaultPenalty(risk))
-            .ok_or(Error::NotInitialized)
+    /// Compute the refund split using basis points.
+    ///
+    /// `penalty_bps` is a fraction out of 10_000, so `500` means 5%. We use
+    /// integer floor division and checked arithmetic to preserve the invariant
+    /// `refund + penalty == amount` without overflow.
+    fn compute_refund_amount(amount: i128, penalty_bps: u32) -> Result<(i128, i128), Error> {
+        if amount <= 0 {
+            return Err(Error::InvalidAmount);
+        }
+        if penalty_bps > MAX_PENALTY_BPS {
+            return Err(Error::PenaltyTooHigh);
+        }
+
+        let penalty = amount
+            .checked_mul(penalty_bps as i128)
+            .ok_or(Error::InvalidAmount)?
+            / MAX_PENALTY_BPS as i128;
+        let refund_amount = amount.checked_sub(penalty).ok_or(Error::InvalidAmount)?;
+
+        Ok((penalty, refund_amount))
     }
 
     fn next_id(env: &Env) -> u64 {
