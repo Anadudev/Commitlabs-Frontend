@@ -15,7 +15,7 @@
 //! `fund_escrow`, `release`, `refund`, and `dispute`.
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, Address, Env, String, Symbol, Vec,
+    contract, contracterror, contractimpl, contracttype, Address, Env, Map, String, Symbol, Vec,
 };
 
 /// Storage keys for persistent contract state.
@@ -79,6 +79,9 @@ pub struct Commitment {
     /// Compliance score 0..=100 recorded by the attestation engine.
     pub compliance_score: u32,
     pub created_at: u64,
+    /// Arbitrary key-value metadata supplied at creation time (e.g. risk notes,
+    /// off-chain context). Keys and values are both `String`. Empty by default.
+    pub metadata: Map<String, String>,
 }
 
 /// Errors returned to the caller. Numeric codes are stable and surfaced by the
@@ -140,6 +143,7 @@ impl EscrowContract {
         risk: RiskProfile,
         duration_days: u32,
         penalty_bps: u32,
+        metadata: Map<String, String>,
     ) -> Result<u64, Error> {
         Self::require_init(&env)?;
         owner.require_auth();
@@ -169,6 +173,7 @@ impl EscrowContract {
             penalty_bps,
             compliance_score: 100,
             created_at: now,
+            metadata,
         };
 
         env.storage()
@@ -364,6 +369,11 @@ impl EscrowContract {
     /// Read a single commitment record.
     pub fn get_commitment(env: Env, commitment_id: u64) -> Result<Commitment, Error> {
         Self::load(&env, commitment_id)
+    }
+
+    /// Return the metadata map stored on a commitment.
+    pub fn get_metadata(env: Env, commitment_id: u64) -> Result<Map<String, String>, Error> {
+        Ok(Self::load(&env, commitment_id)?.metadata)
     }
 
     /// Return the list of commitment ids owned by an address.
