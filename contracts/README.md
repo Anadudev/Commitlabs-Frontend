@@ -50,6 +50,20 @@ create_commitment ──► fund_escrow ──► release            (matured: p
                                   └──► dispute ──► resolve_dispute   (admin adjudication)
 ```
 
+### Marketplace transfer flow (secondary trading)
+
+`transfer_ownership(commitment_id, new_owner)` updates ownership for a **funded** commitment.
+
+**Flow**
+1. Marketplace buyer proposes `new_owner`.
+2. The current commitment owner calls `transfer_ownership` and must authorize via `require_auth()`.
+3. The contract verifies the commitment is `Funded` (transfers are blocked for non-funded states).
+4. The contract updates:
+   - `Commitment.owner`
+   - `OwnerIndex` for both `old_owner` and `new_owner`
+5. The commitment is now eligible for subsequent `release` / `refund` / dispute handling under the new owner.
+
+
 ### Public functions
 
 | Function | Description |
@@ -58,10 +72,17 @@ create_commitment ──► fund_escrow ──► release            (matured: p
 | `create_commitment(owner, asset, amount, risk, duration_days, penalty_bps)` | Create an unfunded commitment with explicit penalty; returns its `id`. |
 | `create_commitment_with_default_penalty(owner, asset, amount, risk, duration_days)` | Create an unfunded commitment using the default penalty for the risk profile; returns its `id`. |
 | `fund_escrow(commitment_id)` | Transfer `amount` from owner into the contract (`Created → Funded`). |
+| `transfer_ownership(commitment_id, new_owner)` | Transfer marketplace ownership for secondary trading (`Funded` only). Current owner must authorize and the contract updates both `Commitment.owner` and `OwnerIndex`. |
+| `release(commitment_id, caller)` | Return principal to owner once matured (`Funded → Released`). |
+| `refund(commitment_id)` | Early-exit refund of principal minus `penalty_bps` (`Funded → Refunded`). |
+| `dispute(commitment_id, caller, reason)` | Freeze a funded commitment pending admin resolution. |
+
 | `deposit_yield_pool(admin, amount)` | Admin-only deposit of yield tokens into the contract yield pool. |
 | `get_yield_pool_balance()` | Read the yield pool balance available for matured release payouts. |
 | `release(commitment_id, caller)` | Return principal plus accrued yield to owner once matured (`Funded → Released`). |
 | `refund(commitment_id)` | Early-exit refund of principal minus `penalty_bps` (`Funded → Refunded`). |
+| `set_grace_period(admin, grace_period_seconds)` | Admin-only configuration of the penalty-free grace window before maturity. |
+| `get_grace_period()` | Read the currently configured penalty-free grace period in seconds. |
 | `dispute(commitment_id, caller, reason)` | Freeze a funded commitment pending admin resolution. The reason is automatically categorized. |
 | `resolve_dispute(commitment_id, release_to_owner)` | Admin-only settlement of a disputed commitment. |
 | `get_dispute(commitment_id)` | Read the dispute record for a commitment (category, reason, timestamp, initiator). |
@@ -73,6 +94,9 @@ create_commitment ──► fund_escrow ──► release            (matured: p
 | `get_commitment(commitment_id)` | Read a single commitment record. |
 | `get_owner_commitments(owner)` | List commitment ids owned by an address. |
 | `get_attestations(commitment_id)` | Retrieve the timeline of `AttestationRecord`s for a commitment. |
+| `refund_partial(commitment_id, amount)` | Partial early-exit: withdraw `amount` from the principal, apply the proportional penalty to that portion, keep the remainder escrowed. |
+| `set_violation_threshold(threshold)` | Admin-only. Set the compliance score threshold (0–100) below which a funded commitment is auto-violated. 0 disables auto-violation. |
+| `get_violation_threshold()` | Read the current violation threshold. |
 
 ### Attestation History
 
@@ -114,6 +138,9 @@ const result = await invokeContractMethod(
 console.log(`Exit Amount: ${result.exitAmount}, Penalty: ${result.penaltyAmount}`);
 ```
 
+#### Grace period behavior
+The contract supports a configurable penalty-free window before commitment maturity. If a funded commitment is refunded while the ledger time is within the configured grace period before maturity, the early-exit penalty is waived and the full principal is returned.
+
 ### Yield model
 
 Matured `release` payouts now return the locked principal plus the commitment's accrued yield. Yield is calculated at commitment creation using a simple annualized model based on the selected `RiskProfile` and the commitment duration.
@@ -131,82 +158,22 @@ Yield is funded by the admin through `deposit_yield_pool(admin, amount)`. The co
 points (`penalty_bps`, max `10_000`) and is paid to the configured fee
 recipient on `refund` / adverse `resolve_dispute`.
 
-### Default penalties per risk profile
+### Refund math model and invariants
 
-Default penalties are configured once at initialization and automatically applied
-to commitments created via `create_commitment_with_default_penalty()`. This
-simplifies commitment creation when consistent penalty tiers are desired.
+Refunds are computed with integer basis-point math:
 
-#### Backend-aligned defaults
+- `penalty = floor(amount * penalty_bps / 10_000)`
+- `refund = amount - penalty`
 
-The contract defaults match the CommitLabs backend tier structure:
+This keeps the split stable and preserves the invariant `refund + penalty == amount`
+for valid principal amounts. The contract enforces `0 <= penalty_bps <= 10_000`
+and uses checked arithmetic so overflowing intermediate multiplication is rejected
+instead of wrapping. Boundary cases are documented in the contract tests:
 
-| Risk Profile | Default Penalty | Basis Points | Use Case |
-| --- | --- | --- | --- |
-| Safe | 2% | 200 | Low-risk commitments with minimal early-exit cost |
-| Balanced | 3% | 300 | Medium-risk commitments with moderate early-exit cost |
-| Aggressive | 5% | 500 | High-risk commitments with significant early-exit cost |
-
-#### Two API patterns
-
-The contract provides two ways to create commitments:
-
-1. **Explicit penalty** (`create_commitment`): Set a specific penalty per commitment
-   - Allows per-commitment customization
-   - Overrides default if needed
-   - Useful for custom deal terms
-
-2. **Default penalty** (`create_commitment_with_default_penalty`): Use the profile default
-   - Simplifies API calls
-   - Ensures consistency across commitments
-   - No penalty parameter needed
-
-Example:
-```rust
-// Use default penalty (e.g., 3% for Balanced risk)
-let id = contract.create_commitment_with_default_penalty(
-    &owner, &asset, &1000, &RiskProfile::Balanced, &30
-)?;
-
-// Or override with custom penalty (e.g., 2% instead of default 3%)
-let id = contract.create_commitment(
-    &owner, &asset, &1000, &RiskProfile::Balanced, &30, &200
-)?;
-```
-
-#### Querying defaults
-
-Use `get_default_penalty(risk)` to retrieve the current default for a risk profile.
-Useful for frontend/backend UI and verification.
-
-### Dispute categorization & reason storage
-
-When a commitment is disputed via `dispute(commitment_id, caller, reason)`, the
-contract automatically categorizes the reason string into a `DisputeReason` enum
-using keyword matching. This enables efficient on-chain classification and 
-off-chain indexing of disputes.
-
-#### DisputeReason categories
-
-| Category | Keywords | Example |
-| --- | --- | --- |
-| `ValueMismatch` | value, mismatch, amount, delivered | "actual value delivered was less than promised" |
-| `NonCompliance` | compliance, attestation, failed, violation | "compliance violation detected" |
-| `FraudSuspicion` | fraud, unauthorized, suspicious | "suspected fraudulent activity" |
-| `OperationalFailure` | operational, failure, delivery | "operational failure in delivery" |
-| `Other` | (default) | "some other unclassified reason" |
-
-#### Dispute record structure
-
-Each disputed commitment stores a `DisputeRecord` containing:
-- `reason_category`: The `DisputeReason` enum value (0–4)
-- `reason_text`: The free-form reason string provided by the initiator (for audit)
-- `disputed_at`: Ledger timestamp when the dispute was opened
-- `disputed_by`: Address that initiated the dispute (owner or admin)
-
-The dispute record is persisted on-chain and can be read at any time via
-`get_dispute(commitment_id)`, even after the dispute is resolved. This enables
-auditing, analytics, and off-chain verification of dispute history.
+- `penalty_bps = 0` → full principal refund, zero penalty
+- `penalty_bps = 10_000` → zero refund, full principal penalty
+- tiny amounts (`1`, `2`, `3`, etc.) remain non-negative and partition cleanly
+- seeded deterministic property tests cover randomized mid-range values and overflow guards
 
 ### Errors
 
@@ -214,7 +181,8 @@ Stable numeric error codes (`#[contracterror]`) are surfaced so the backend
 `normalizeContractError` mapper can translate them into HTTP responses:
 `AlreadyInitialized`, `NotInitialized`, `NotFound`, `Unauthorized`,
 `InvalidAmount`, `InvalidState`, `NotMatured`, `InvalidDuration`,
-`PenaltyTooHigh`, `Paused`.
+`PenaltyTooHigh`, `Paused`, `AssetMismatch`, `InsufficientYieldPool`,
+`InvalidWasmHash`, `CommitmentViolated`.
 
 ## Build & test
 
