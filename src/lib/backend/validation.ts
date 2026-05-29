@@ -1,4 +1,3 @@
-// src/lib/backend/validation.ts
 import { z } from "zod";
 import { StrKey } from "@stellar/stellar-sdk";
 import { PARAMETER_BOUNDS, SUPPORTED_ASSETS } from "./config";
@@ -34,86 +33,19 @@ export interface ValidationResult {
   data?: ValidatedCommitmentDraft;
 }
 
-export class ValidationError extends Error {
-  constructor(
-    message: string,
-    public field?: string,
-  ) {
-    super(message);
-    this.name = "ValidationError";
-  }
-}
-
-export interface PaginationParams {
-  page: number;
-  limit: number;
-}
-
-export interface FilterParams {
-  [key: string]: string | number | boolean | undefined;
-}
-
-// Zod schemas
-const addressSchema = z
-  .string()
-  .refine((addr) => StrKey.isValidEd25519PublicKey(addr), {
-    message: "Invalid Stellar address format",
-  });
-
-const amountSchema = z.union([z.string(), z.number()]).transform((val) => {
-  const num = typeof val === "string" ? parseFloat(val) : val;
-  if (isNaN(num) || num <= 0) {
-    throw new Error("Amount must be a positive number");
-  }
-  return num;
+const DisputeReasonSchema = z.object({
+    reason: z.string().min(1, "Dispute reason is required").max(500, "Reason must be 500 characters or less"),
+    evidence: z.string().optional(),
 });
 
-const paginationSchema = z
-  .object({
-    page: z
-      .union([z.string(), z.number()])
-      .optional()
-      .default(1)
-      .transform((val) => {
-        const num = typeof val === "string" ? parseInt(val, 10) : val;
-        if (isNaN(num) || num < 1) {
-          throw new Error("Page must be a positive integer");
-        }
-        return num;
-      }),
-    limit: z
-      .union([z.string(), z.number()])
-      .optional()
-      .default(10)
-      .transform((val) => {
-        const num = typeof val === "string" ? parseInt(val, 10) : val;
-        if (isNaN(num) || num < 1 || num > 100) {
-          throw new Error("Limit must be between 1 and 100");
-        }
-        return num;
-      }),
-  })
-  .transform((data) => ({
-    page: data.page,
-    limit: data.limit,
-  }));
-
-// Request body schemas
-export const createCommitmentSchema = z.object({
-  title: z.string().min(1, "Title is required"),
-  description: z.string().min(1, "Description is required"),
-  amount: amountSchema,
-  creatorAddress: addressSchema,
+const ResolveDisputeSchema = z.object({
+    resolution: z.enum(["resolved_in_favor_of_owner", "resolved_in_favor_of_counterparty", "dismissed"]),
+    notes: z.string().max(1000, "Notes must be 1000 characters or less").optional(),
 });
 
-export const createMarketplaceListingSchema = z.object({
-  title: z.string().min(1, "Title is required"),
-  description: z.string().optional(),
-  price: amountSchema,
-  category: z.string().min(1, "Category is required"),
-  sellerAddress: addressSchema,
-});
-
+export { DisputeReasonSchema, ResolveDisputeSchema };
+export type DisputeReasonInput = z.infer<typeof DisputeReasonSchema>;
+export type ResolveDisputeInput = z.infer<typeof ResolveDisputeSchema>;
 export const createAttestationSchema = z.object({
   commitmentId: z.string().min(1, "Commitment ID is required"),
   attesterAddress: addressSchema,

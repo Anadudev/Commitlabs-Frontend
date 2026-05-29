@@ -521,6 +521,103 @@ curl http://localhost:3000/api/protocol/constants
 
 ---
 
+## `POST /api/commitments/[id]/dispute`
+
+Opens a dispute for the named commitment.  Calls the escrow contract's
+`dispute` method and records an audit log event.
+
+- **Path parameter**: `id` (string) — the commitment ID
+- **Request body**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `reason` | string | Yes | Reason for the dispute (1–500 characters) |
+| `evidence` | string | No | Optional URL or reference to supporting evidence |
+| `callerAddress` | string | No | Stellar address of the caller (defaults to commitment owner) |
+
+- **Response**: dispute details including `disputeId`, `status`, and `txHash`.
+
+### Example
+
+```bash
+curl -X POST http://localhost:3000/api/commitments/abc123/dispute \
+     -H 'Content-Type: application/json' \
+     -d '{"reason":"Payment not received","evidence":"https://example.com/proof"}'
+```
+
+```json
+{
+  "success": true,
+  "data": {
+    "commitmentId": "abc123",
+    "disputeId": "DSP-001",
+    "status": "DISPUTED",
+    "txHash": "0xdispute123",
+    "disputedAt": "2026-05-28T14:00:00.000Z"
+  }
+}
+```
+
+### Error Responses
+
+| Status | Condition |
+|--------|-----------|
+| 400 | Missing or invalid `reason`, empty commitment ID |
+| 409 | Commitment already settled, exited, or already in dispute |
+| 502 | Blockchain call failed |
+
+---
+
+## `POST /api/commitments/[id]/resolve`
+
+Resolves an open dispute on a commitment. **Admin access only** — the caller
+must authenticate with a valid Bearer token and the address must be listed in
+`ADMIN_ADDRESSES`.  Calls the escrow contract's `resolve_dispute` method and
+records an audit log event.
+
+- **Path parameter**: `id` (string) — the commitment ID
+- **Authentication**: Bearer token required (admin only)
+- **Request body**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `resolution` | enum | Yes | One of: `resolved_in_favor_of_owner`, `resolved_in_favor_of_counterparty`, `dismissed` |
+| `notes` | string | No | Optional resolution notes (max 1000 characters) |
+
+- **Response**: resolution details including `disputeId`, `resolution`, and `finalStatus`.
+
+### Example
+
+```bash
+curl -X POST http://localhost:3000/api/commitments/abc123/resolve \
+     -H 'Content-Type: application/json' \
+     -H 'Authorization: Bearer <session_token>' \
+     -d '{"resolution":"resolved_in_favor_of_owner","notes":"Evidence reviewed and validated"}'
+```
+
+```json
+{
+  "success": true,
+  "data": {
+    "commitmentId": "abc123",
+    "disputeId": "DSP-001",
+    "resolution": "resolved_in_favor_of_owner",
+    "finalStatus": "ACTIVE",
+    "txHash": "0xresolve123",
+    "resolvedAt": "2026-05-28T14:30:00.000Z"
+  }
+}
+```
+
+### Error Responses
+
+| Status | Condition |
+|--------|-----------|
+| 400 | Missing or invalid `resolution`, empty commitment ID, notes too long |
+| 401 | Missing or invalid Bearer token |
+| 403 | Caller is not an admin |
+| 409 | Commitment is not currently in dispute |
+| 502 | Blockchain call failed |
 ## `GET /api/commitments/[id]/events`
 
 Server-Sent Events (SSE) stream that pushes real-time commitment status updates and transitions (Active, Settled, Early Exit, Violated).
