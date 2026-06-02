@@ -1,7 +1,12 @@
 import { defineConfig } from 'vitest/config';
+import react from '@vitejs/plugin-react';
 import path from 'path';
 
 export default defineConfig({
+  oxc: false,
+  esbuild: {
+    jsx: 'automatic',
+  },
   test: {
     globals: true,
     setupFiles: ['./tests/setup/vitest.setup.ts'],

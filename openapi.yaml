@@ -359,6 +359,42 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /api/commitments/{id}/settle/preview:
+    get:
+      summary: Settlement Preview
+      description: Returns a preview of whether a commitment is eligible for settlement and an estimated settlement amount.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The commitment ID to preview settlement for.
+      responses:
+        '200':
+          description: Settlement preview result.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          eligible:
+                            type: boolean
+                          reason:
+                            type: string
+                            nullable: true
+                          estimatedSettlement:
+                            type: string
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
   /api/commitments/{id}/early-exit:
     post:
       summary: Early Exit

@@ -1,4 +1,3 @@
-// @ts-ignore
 import { createHash } from 'crypto';
 
 function stableSerialize(value: unknown): string {

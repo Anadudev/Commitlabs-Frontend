@@ -17,7 +17,7 @@ contracts/
     └── deploy-testnet.smoke.mjs  # Dry-run smoke validation
 ```
 
-## `escrow` contract
+## Escrow lifecycle
 
 The escrow contract manages the on-chain lifecycle of a liquidity commitment. Assets are deposited under a chosen risk profile and held in escrow until the commitment matures, is exited early, or is disputed.
 
@@ -30,6 +30,65 @@ To prevent reentrancy and similar vulnerabilities when interacting with external
 3. **Interactions**: Perform cross-contract calls to the asset's token contract.
 
 This ordering guarantees contract state is fully resolved before control is handed to external logic.
+
+## EscrowStatus State Machine
+
+### States
+
+| State | Description |
+|-------|-------------|
+| `Created` | Commitment created but not yet funded. Awaiting owner to deposit assets. |
+| `Funded` | Assets locked in escrow. Commitment is actively held and can be released, refunded, or disputed. |
+| `Released` | Matured and released to the owner. Principal plus accrued yield returned. Terminal state. |
+| `Refunded` | Exited early or resolved via dispute. Principal minus penalty returned. Terminal state. |
+| `Disputed` | Under dispute; all transfers frozen pending admin resolution. Intermediate state. |
+| `Violated` | Compliance score dropped below violation threshold. Transfers frozen until resolved. Intermediate state. |
+
+### Transition Diagram (ASCII)
+
+```
+                    ┌─────────────┐
+                    │   CREATED   │
+                    └──────┬──────┘
+                           │ fund_escrow()
+                           ▼
+                    ┌─────────────┐
+                    │   FUNDED    │◄─────────────────────────────┐
+                    └──┬──┬──┬────┘                              │
+                       │  │  │                                   │
+        ┌──────────────┘  │  └──────────────┐                   │
+        │                 │                 │                   │
+        │ release()       │ refund()        │ dispute()         │
+        │ (matured)       │ (early exit)    │ (frozen)          │
+        │                 │                 │                   │
+        ▼                 ▼                 ▼                   │
+    ┌─────────┐      ┌─────────┐      ┌──────────┐             │
+    │RELEASED │      │REFUNDED │      │ DISPUTED │             │
+    └─────────┘      └─────────┘      └────┬─────┘             │
+                                            │                   │
+                                            │ resolve_dispute() │
+                                            │                   │
+                                            └───────────────────┘
+                                                (release or refund)
+
+    record_attestation() with low score:
+    FUNDED ──────────────────────► VIOLATED ──► resolve_dispute() ──► FUNDED or RELEASED/REFUNDED
+```
+
+### Transition Table
+
+| From State | To State | Triggered By | Authorized | Preconditions |
+|------------|----------|--------------|-----------|---------------|
+| `Created` | `Funded` | `fund_escrow()` | Owner | Owner has sufficient balance; asset matches configured token |
+| `Funded` | `Released` | `release()` | Any | Ledger time ≥ maturity; yield pool has sufficient balance |
+| `Funded` | `Refunded` | `refund()` | Owner | Before maturity (or within grace period); not violated |
+| `Funded` | `Refunded` | `refund_partial()` | Owner | Partial withdrawal; remainder stays funded or becomes refunded |
+| `Funded` | `Disputed` | `dispute()` | Owner or Admin | Commitment is funded |
+| `Funded` | `Violated` | `record_attestation()` | Attestor | Compliance score < violation threshold |
+| `Disputed` | `Released` | `resolve_dispute(release_to_owner=true)` | Admin | Dispute exists; yield pool sufficient if matured |
+| `Disputed` | `Refunded` | `resolve_dispute(release_to_owner=false)` | Admin | Dispute exists |
+| `Violated` | `Released` | `resolve_dispute(release_to_owner=true)` | Admin | Violation exists; yield pool sufficient if matured |
+| `Violated` | `Refunded` | `resolve_dispute(release_to_owner=false)` | Admin | Violation exists |
 
 ### Lifecycle
 
@@ -102,7 +161,7 @@ Returned `EarlyExitResult` fields:
 
 If a funded commitment is refunded within the configured grace period before maturity, the early-exit penalty is waived and the full principal is returned.
 
-### Yield model
+## Yield model
 
 Matured `release` payouts return locked principal plus accrued yield. Current annualized rates:
 
