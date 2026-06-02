@@ -7,7 +7,7 @@ import { getClientIp } from '@/lib/backend/getClientIp';
 import { parseJsonWithLimit, JSON_BODY_LIMITS } from "@/lib/backend/jsonBodyLimit";
 import { checkRateLimit, getRateLimitWindowSeconds } from "@/lib/backend/rateLimit";
 import { getUserCommitmentsFromChain, createCommitmentOnChain } from "@/lib/backend/services/contracts";
-import { validateStellarAddress } from "@/lib/backend/validation";
+import { validateSupportedAsset } from "@/lib/backend/validation";
 import { withApiHandler } from "@/lib/backend/withApiHandler";
 
 const CommitmentsQuerySchema = z.object({
@@ -53,7 +53,7 @@ export const GET = withApiHandler(async (req: NextRequest, _context, correlation
     );
   }
 
-  const commitments = await getUserCommitmentsFromChain(ownerAddress);
+  const commitments = await getUserCommitmentsFromChain(ownerAddress, { requestId: correlationId });
   let mapped = commitments.map((c: any) => ({
     commitmentId: String(c.id ?? c.commitmentId),
     ownerAddress: c.ownerAddress,
@@ -67,6 +67,7 @@ export const GET = withApiHandler(async (req: NextRequest, _context, correlation
     violationCount: c.violationCount,
     createdAt: c.createdAt,
     expiresAt: c.expiresAt,
+    contractVersion: c.contractVersion,
   }));
 
   if (status) mapped = mapped.filter((c) => c.status === status);
@@ -78,7 +79,7 @@ export const GET = withApiHandler(async (req: NextRequest, _context, correlation
   const items = mapped.slice(start, start + pageSize);
 
   return ok({ items, page, pageSize, total }, undefined, 200, correlationId);
-}, { cors: COMMITMENTS_CORS_POLICY });
+}, { cors: COMMITMENTS_CORS_POLICY, enableETag: true });
 
 export const POST = withApiHandler(async (req: NextRequest, _context, correlationId) => {
   const ip = getClientIp(req);
@@ -100,13 +101,27 @@ export const POST = withApiHandler(async (req: NextRequest, _context, correlatio
   if (!ownerAddress || typeof ownerAddress !== "string") {
     return fail("BAD_REQUEST", "Invalid ownerAddress", undefined, 400, correlationId);
   }
+  if (!asset || typeof asset !== "string") {
+    return fail("BAD_REQUEST", "Invalid asset", undefined, 400, correlationId);
+  }
+  try {
+    validateSupportedAsset(asset, "asset");
+  } catch {
+    throw new ValidationError("Asset is not supported. Supported assets: XLM, USDC.");
+  }
+  if (!ownerAddress || typeof ownerAddress !== "string") {
+    return fail("BAD_REQUEST", "Invalid ownerAddress", undefined, 400, correlationId);
+  }
   try {
     validateStellarAddress(ownerAddress, "ownerAddress");
   } catch {
-    return fail("BAD_REQUEST", "Invalid ownerAddress: must be a valid Stellar address (G... format).", undefined, 400, correlationId);
-  }
-  if (!asset || typeof asset !== "string") {
-    return fail("BAD_REQUEST", "Invalid asset", undefined, 400, correlationId);
+    return fail(
+      "BAD_REQUEST",
+      "Invalid ownerAddress: must be a valid Stellar address (G... format).",
+      undefined,
+      400,
+      correlationId,
+    );
   }
   if (!amount || isNaN(Number(amount))) {
     return fail("BAD_REQUEST", "Invalid amount", undefined, 400, correlationId);
@@ -117,7 +132,6 @@ export const POST = withApiHandler(async (req: NextRequest, _context, correlatio
   if (maxLossBps == null || maxLossBps < 0) {
     return fail("BAD_REQUEST", "Invalid maxLossBps", undefined, 400, correlationId);
   }
-
   const result = await createCommitmentOnChain({
     ownerAddress,
     asset,
@@ -125,7 +139,7 @@ export const POST = withApiHandler(async (req: NextRequest, _context, correlatio
     durationDays,
     maxLossBps,
     metadata,
-  });
+  }, { requestId: correlationId });
 
   return ok(result, undefined, 201, correlationId);
 }, { cors: COMMITMENTS_CORS_POLICY });

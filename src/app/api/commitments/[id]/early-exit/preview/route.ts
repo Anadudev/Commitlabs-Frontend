@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { ok, badRequest, notFound } from '@/lib/backend/apiResponse';
+import { ok } from '@/lib/backend/apiResponse';
 import { BackendError, BackendErrorCode } from '@/lib/backend/errors';
 import { withApiHandler } from '@/lib/backend/withApiHandler';
 import { checkRateLimit } from '@/lib/backend/rateLimit';

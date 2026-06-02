@@ -21,10 +21,12 @@ import { CacheKey, CacheTTL } from "@/lib/backend/cache/index";
 import { getCountersAdapter } from "@/lib/backend/counters/provider";
 
 export type ChainCommitmentStatus =
+  | "CREATED"
   | "ACTIVE"
   | "SETTLED"
   | "VIOLATED"
   | "EARLY_EXIT"
+  | "DISPUTED"
   | "UNKNOWN";
 
 export interface CreateCommitmentOnChainParams {
@@ -34,6 +36,11 @@ export interface CreateCommitmentOnChainParams {
   durationDays: number;
   maxLossBps: number;
   metadata?: Record<string, unknown>;
+}
+
+export interface LoggingContext {
+  requestId?: string;
+  commitmentId?: string;
 }
 
 export interface ChainCommitment {
@@ -48,6 +55,7 @@ export interface ChainCommitment {
   violationCount: number;
   createdAt?: string;
   expiresAt?: string;
+  contractVersion?: string;
 }
 
 export interface CreateCommitmentOnChainResult {
@@ -88,12 +96,67 @@ export interface SettleCommitmentOnChainResult {
   finalStatus: string;
 }
 
+export interface DisputeOnChainParams {
+  commitmentId: string;
+  reason: string;
+  evidence?: string;
+  callerAddress: string;
+}
+
+export interface DisputeOnChainResult {
+  commitmentId: string;
+  disputeId: string;
+  status: string;
+  txHash?: string;
+  disputedAt: string;
+}
+
+export interface ResolveDisputeOnChainParams {
+  commitmentId: string;
+  resolution: "resolved_in_favor_of_owner" | "resolved_in_favor_of_counterparty" | "dismissed";
+  notes?: string;
+  resolverAddress: string;
+}
+
+export interface ResolveDisputeOnChainResult {
+  commitmentId: string;
+  disputeId: string;
+  resolution: string;
+  finalStatus: string;
+  txHash?: string;
+  resolvedAt: string;
+}
+
+export interface EarlyExitCommitmentOnChainParams {
+  commitmentId: string;
+  callerAddress?: string;
+}
+
+export interface EarlyExitCommitmentOnChainResult {
+  exitAmount: string;
+  penaltyAmount: string;
+  finalStatus: string;
+  txHash?: string;
+  reference?: string;
+}
+
 type ContractCallMode = "read" | "write";
 interface ContractInvocationResult {
   value: unknown;
   txHash?: string;
+  version?: string;
 }
 
+/**
+ * Scaling factor for compliance scores sent to/from the blockchain.
+ * Compliance scores are stored on-chain as integers in the range [0, 100]
+ * to avoid floating-point precision issues. When writing to the chain,
+ * scores are divided by this scale; when reading from the chain, they
+ * are multiplied by this scale to restore the original value.
+ *
+ * Example: A compliance score of 85 is stored as 0.85 on-chain,
+ * and read back as 85 in the application.
+ */
 const ANALYTICS_SCALE = 100;
 
 function getRpcUrl(): string {
@@ -102,6 +165,46 @@ function getRpcUrl(): string {
 
 function getNetworkPassphrase(): string {
   return getBackendConfig().networkPassphrase;
+}
+
+function getRpcTimeoutMs(): number {
+  const raw = Number(process.env.SOROBAN_RPC_TIMEOUT_MS);
+  return Number.isFinite(raw) && raw > 0 ? raw : 15_000;
+}
+
+async function withRpcTimeout<T>(
+  promise: Promise<T>,
+  methodName: string,
+): Promise<T> {
+  const timeoutMs = getRpcTimeoutMs();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(
+            new BackendError({
+              code: "GATEWAY_TIMEOUT",
+              message:
+                "The blockchain operation timed out. It may still be processed later.",
+              status: 504,
+              details: {
+                methodName,
+                timeoutMs,
+                retryable: true,
+              },
+            }),
+          );
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
 }
 
 function getContractId(kind: "commitmentCore" | "attestationEngine"): string {
@@ -127,6 +230,45 @@ function getSourcePublicKey(): string | null {
   }
 
   return process.env.SOROBAN_SOURCE_ACCOUNT || null;
+}
+
+function getRpcTimeoutMs(): number {
+  const raw = Number(process.env.SOROBAN_RPC_TIMEOUT_MS);
+  return Number.isFinite(raw) && raw > 0 ? raw : 15_000;
+}
+
+async function withRpcTimeout<T>(
+  operation: Promise<T>,
+  methodName: string,
+  timeoutMs = getRpcTimeoutMs(),
+): Promise<T> {
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<T>((_, reject) => {
+        timeoutHandle = setTimeout(() => {
+          reject(
+            new BackendError({
+              code: "GATEWAY_TIMEOUT",
+              message: "The blockchain operation timed out. It may still be processed later.",
+              status: 504,
+              details: {
+                methodName,
+                timeoutMs,
+                retryable: true,
+              },
+            }),
+          );
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+  }
 }
 
 function getSorobanServer(): SorobanRpc.Server {
@@ -166,10 +308,12 @@ function asNumber(value: unknown, fallback = 0): number {
 function normalizeStatus(value: unknown): ChainCommitmentStatus {
   const raw = asString(value, "UNKNOWN").toUpperCase();
   if (
+    raw === "CREATED" ||
     raw === "ACTIVE" ||
     raw === "SETTLED" ||
     raw === "VIOLATED" ||
-    raw === "EARLY_EXIT"
+    raw === "EARLY_EXIT" ||
+    raw === "DISPUTED"
   ) {
     return raw;
   }
@@ -200,7 +344,7 @@ function parseChainCommitment(value: unknown): ChainCommitment {
     asset: asString(raw.asset),
     amount: asString(raw.amount, "0"),
     status: normalizeStatus(raw.status),
-    complianceScore: asNumber(raw.complianceScore ?? raw.compliance_score),
+    complianceScore: asNumber(raw.complianceScore ?? raw.compliance_score) * ANALYTICS_SCALE,
     currentValue: asString(
       raw.currentValue ?? raw.current_value ?? raw.amount,
       "0",
@@ -209,6 +353,7 @@ function parseChainCommitment(value: unknown): ChainCommitment {
     violationCount: asNumber(raw.violationCount ?? raw.violation_count),
     createdAt: asString(raw.createdAt ?? raw.created_at) || undefined,
     expiresAt: asString(raw.expiresAt ?? raw.expires_at) || undefined,
+    contractVersion: (getBackendConfig() as { activeVersion?: string }).activeVersion,
   };
 }
 
@@ -264,7 +409,7 @@ function parseAttestationResult(
   return {
     attestationId,
     commitmentId,
-    complianceScore: asNumber(raw.complianceScore ?? raw.compliance_score),
+    complianceScore: asNumber(raw.complianceScore ?? raw.compliance_score) * ANALYTICS_SCALE,
     violation: Boolean(raw.violation),
     feeEarned: asString(raw.feeEarned ?? raw.fees_earned, "0"),
     recordedAt:
@@ -281,6 +426,46 @@ function parseCommitmentList(value: unknown): ChainCommitment[] {
   return value.map((item) => parseChainCommitment(item));
 }
 
+function getRpcTimeoutMs(): number {
+  const raw = process.env.SOROBAN_RPC_TIMEOUT_MS;
+  const parsed = raw ? Number(raw) : NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 15_000;
+}
+
+function withRpcTimeout<T>(
+  promise: Promise<T>,
+  methodName: string,
+  timeoutMs = getRpcTimeoutMs(),
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(
+        new BackendError({
+          code: "GATEWAY_TIMEOUT",
+          message: "The blockchain operation timed out. It may still be processed later.",
+          status: 504,
+          details: {
+            methodName,
+            timeoutMs,
+            retryable: true,
+          },
+        }),
+      );
+    }, timeoutMs);
+
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
 async function waitForTransactionResult(
   server: SorobanRpc.Server,
   hash: string,
@@ -288,7 +473,11 @@ async function waitForTransactionResult(
 ): Promise<unknown> {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
-    const tx = await server.getTransaction(hash);
+    const tx = await withRpcTimeout(
+      server.getTransaction(hash),
+      "getTransaction",
+      timeoutMs,
+    );
     if (tx.status === SorobanRpc.Api.GetTransactionStatus.SUCCESS) {
       return tx.returnValue ? scValToNative(tx.returnValue) : null;
     }
@@ -319,7 +508,14 @@ async function invokeContractMethod(
   methodName: string,
   params: unknown[],
   mode: ContractCallMode,
+  attempt = 1,
 ): Promise<ContractInvocationResult> {
+  // Guard: a write transaction must be submitted exactly once. Retrying one
+  // (attempt > 1) risks a double submission, so it is rejected before any
+  // network work is performed. Direct (non-retried) calls always pass
+  // attempt = 1 and are unaffected.
+  assertRetrySafe(mode, attempt);
+
   if (!contractId) {
     throw new BackendError({
       code: "BLOCKCHAIN_UNAVAILABLE",
@@ -343,7 +539,10 @@ async function invokeContractMethod(
   const contract = new Contract(contractId);
   const account =
     mode === "write"
-      ? await server.getAccount(sourcePublicKey)
+      ? await withRpcTimeout(
+          server.getAccount(sourcePublicKey),
+          `${methodName}.getAccount`,
+        )
       : new Account(sourcePublicKey, "0");
   const operation = contract.call(
     methodName,
@@ -358,7 +557,10 @@ async function invokeContractMethod(
     .setTimeout(30)
     .build();
 
-  const simulation = await server.simulateTransaction(tx);
+  const simulation = await withRpcTimeout(
+    server.simulateTransaction(tx),
+    `${methodName}.simulateTransaction`,
+  );
   if (SorobanRpc.Api.isSimulationError(simulation)) {
     throw normalizeBackendError(new Error(simulation.error), {
       code: "BLOCKCHAIN_CALL_FAILED",
@@ -371,6 +573,7 @@ async function invokeContractMethod(
   if (mode === "read") {
     return {
       value: simulation.result ? scValToNative(simulation.result.retval) : null,
+      version: getBackendConfig().activeVersion,
     };
   }
 
@@ -384,13 +587,61 @@ async function invokeContractMethod(
     });
   }
 
-  const preparedTx = await server.prepareTransaction(tx);
+  const preparedTx = await withRpcTimeout(
+    server.prepareTransaction(tx),
+    `${methodName}.prepareTransaction`,
+  );
   preparedTx.sign(sourceKeypair);
-  const sendResult = await server.sendTransaction(preparedTx);
+  const sendResult = await withRpcTimeout(
+    server.sendTransaction(preparedTx),
+    "sendTransaction",
+  );
   const txHash = sendResult.hash;
 
   const onChainValue = await waitForTransactionResult(server, txHash);
-  return { value: onChainValue, txHash };
+  return { value: onChainValue, txHash, version: getBackendConfig().activeVersion };
+}
+
+/**
+ * Read-only counterpart of {@link invokeContractMethod} that adds bounded
+ * retry-with-exponential-backoff for transient RPC failures.
+ *
+ * Use this for ALL read-mode contract calls. The call mode is hard-coded to
+ * "read", so a write transaction can never be submitted — let alone
+ * re-submitted — through this path. Write calls must keep calling
+ * `invokeContractMethod(..., "write")` directly so each runs exactly once.
+ *
+ * Only failures classified retryable by {@link isRetryableContractError} are
+ * retried; attempts and total backoff are capped by {@link READ_RETRY_CONFIG}.
+ * The final error is propagated unchanged, so a caller's `incrementChainFailures`
+ * runs exactly once, only after retries are exhausted.
+ */
+async function invokeReadContractMethod(
+  contractId: string,
+  methodName: string,
+  params: unknown[],
+): Promise<ContractInvocationResult> {
+  return retryWithBackoff(
+    (attempt) =>
+      invokeContractMethod(contractId, methodName, params, "read", attempt),
+    {
+      ...READ_RETRY_CONFIG,
+      isRetryable: (error) =>
+        !(
+          error instanceof BackendError &&
+          error.code === "GATEWAY_TIMEOUT" &&
+          asRecord(error.details).timeoutMs !== undefined
+        ) && isRetryableContractError(error),
+      onRetry: ({ attempt, delayMs, error }) => {
+        logInfo(undefined, "[soroban] retrying read after transient failure", {
+          methodName,
+          attempt,
+          delayMs: Math.round(delayMs),
+          error: error instanceof Error ? error.message : String(error),
+        });
+      },
+    },
+  );
 }
 
 function validateOwnerAddress(ownerAddress: string): void {
@@ -406,6 +657,7 @@ function validateOwnerAddress(ownerAddress: string): void {
 
 export async function createCommitmentOnChain(
   params: CreateCommitmentOnChainParams,
+  loggingContext?: LoggingContext,
 ): Promise<CreateCommitmentOnChainResult> {
   try {
     validateOwnerAddress(params.ownerAddress);
@@ -446,6 +698,7 @@ export async function createCommitmentOnChain(
 
 export async function getCommitmentFromChain(
   commitmentId: string,
+  loggingContext?: LoggingContext,
 ): Promise<ChainCommitment> {
   try {
     if (!commitmentId) {
@@ -459,27 +712,31 @@ export async function getCommitmentFromChain(
     const cacheKey = CacheKey.commitment(commitmentId);
     const cached = await cache.get<ChainCommitment>(cacheKey);
     if (cached !== null) {
-      logInfo(undefined, "[cache] hit commitment", { commitmentId });
+      logInfo(loggingContext?.requestId, "[cache] hit commitment", { commitmentId });
       return cached;
     }
-    logInfo(undefined, "[cache] miss commitment", { commitmentId });
+    logInfo(loggingContext?.requestId, "[cache] miss commitment", { commitmentId });
 
-    const invocation = await invokeContractMethod(
+    // Read call: wrapped with bounded retry-and-backoff for transient failures.
+    const invocation = await invokeReadContractMethod(
       getContractId("commitmentCore"),
       "get_commitment",
       [commitmentId],
-      "read",
     );
 
     // Increment successful actions counter on successful chain read
     const countersAdapter = getCountersAdapter();
     void countersAdapter.incrementSuccessfulActions(); // Fire and forget for metrics
 
-    const commitment = parseChainCommitment(invocation.value);
+    const commitment = {
+      ...parseChainCommitment(invocation.value),
+      contractVersion: invocation.version ?? getBackendConfig().activeVersion,
+    };
     await cache.set(cacheKey, commitment, CacheTTL.COMMITMENT_DETAIL);
     return commitment;
   } catch (error) {
-    // Increment chain failures counter on blockchain operation failures
+    // Increment chain failures counter on blockchain operation failures.
+    // Reached only after read retries (if any) have been exhausted.
     const countersAdapter = getCountersAdapter();
     void countersAdapter.incrementChainFailures(); // Fire and forget for metrics
 
@@ -494,6 +751,7 @@ export async function getCommitmentFromChain(
 
 export async function getUserCommitmentsFromChain(
   ownerAddress: string,
+  loggingContext?: LoggingContext,
 ): Promise<ChainCommitment[]> {
   try {
     validateOwnerAddress(ownerAddress);
@@ -501,14 +759,21 @@ export async function getUserCommitmentsFromChain(
     const cacheKey = CacheKey.userCommitments(ownerAddress);
     const cached = await cache.get<ChainCommitment[]>(cacheKey);
     if (cached !== null) {
-      logInfo(undefined, "[cache] hit user-commitments", { ownerAddress });
+      logInfo(loggingContext?.requestId, "[cache] hit user-commitments", { ownerAddress });
       return cached;
     }
-    logInfo(undefined, "[cache] miss user-commitments", { ownerAddress });
+    logInfo(loggingContext?.requestId, "[cache] miss user-commitments", { ownerAddress });
 
     const contractId = getContractId("commitmentCore");
 
     try {
+      // Optimistic probe. `get_user_commitments` may not exist on every
+      // deployed contract, and its failure is expected and handled by the
+      // id-based fallback below — so it is deliberately NOT retried. Retrying
+      // an expected failure would only add latency. Genuine transient errors
+      // are still covered: the fallback `get_user_commitment_ids` read and the
+      // per-id `getCommitmentFromChain` reads each go through
+      // `invokeReadContractMethod` and so are retried.
       const directResult = await invokeContractMethod(
         contractId,
         "get_user_commitments",
@@ -529,17 +794,17 @@ export async function getUserCommitmentsFromChain(
       }
     }
 
-    const idsResult = await invokeContractMethod(
+    // Read call: wrapped with bounded retry-and-backoff for transient failures.
+    const idsResult = await invokeReadContractMethod(
       contractId,
       "get_user_commitment_ids",
       [ownerAddress],
-      "read",
     );
     const commitmentIds = Array.isArray(idsResult.value)
       ? idsResult.value.map((id) => asString(id)).filter(Boolean)
       : [];
     const commitments = await Promise.all(
-      commitmentIds.map((commitmentId) => getCommitmentFromChain(commitmentId)),
+      commitmentIds.map((commitmentId) => getCommitmentFromChain(commitmentId, loggingContext)),
     );
 
     await cache.set(cacheKey, commitments, CacheTTL.USER_COMMITMENTS);
@@ -548,7 +813,8 @@ export async function getUserCommitmentsFromChain(
     void countersAdapter.incrementSuccessfulActions();
     return commitments;
   } catch (error) {
-    // Increment chain failures counter on blockchain operation failures
+    // Increment chain failures counter on blockchain operation failures.
+    // Reached only after read retries (if any) have been exhausted.
     const countersAdapter = getCountersAdapter();
     void countersAdapter.incrementChainFailures();
 
@@ -556,13 +822,14 @@ export async function getUserCommitmentsFromChain(
       code: "BLOCKCHAIN_CALL_FAILED",
       message: "Unable to fetch user commitments from chain.",
       status: 502,
-      details: { method: "get_user_commitments", ownerAddress },
+      details: { method: "get_user_commitments", ownerAddress, requestId: loggingContext?.requestId },
     });
   }
 }
 
 export async function recordAttestationOnChain(
   params: RecordAttestationOnChainParams,
+  loggingContext?: LoggingContext,
 ): Promise<RecordAttestationOnChainResult> {
   try {
     if (!params.commitmentId) {
@@ -605,6 +872,10 @@ export async function recordAttestationOnChain(
       );
     }
 
+    // Add logging context to payload if needed
+    const eventPayload = { ...params, requestId: loggingContext?.requestId };
+    // (Potentially emit an event here)
+
     return parseAttestationResult(invocation.value, invocation.txHash);
   } catch (error) {
     // Increment chain failures counter on blockchain operation failures
@@ -625,6 +896,7 @@ export async function recordAttestationOnChain(
 
 export async function settleCommitmentOnChain(
   params: SettleCommitmentOnChainParams,
+  loggingContext?: LoggingContext,
 ): Promise<SettleCommitmentOnChainResult> {
   try {
     if (!params.commitmentId) {
@@ -636,7 +908,7 @@ export async function settleCommitmentOnChain(
     }
 
     // First, get the commitment to check if it's matured
-    const commitment = await getCommitmentFromChain(params.commitmentId);
+    const commitment = await getCommitmentFromChain(params.commitmentId, loggingContext);
 
     // Check if commitment is matured (expired or can be settled)
     if (commitment.status === "SETTLED") {
@@ -648,20 +920,27 @@ export async function settleCommitmentOnChain(
     }
 
     if (commitment.status === "ACTIVE") {
-      // Check if commitment has expired (if expiresAt is available)
+      // Invariant: An active commitment can only be settled if it has matured.
+      // If expiresAt is present, we check if the current time is past the expiry time.
+      // If expiresAt is missing, we err on the side of safety and block settlement
+      // to prevent un-matured commitments from being settled prematurely.
       if (commitment.expiresAt) {
         const expiryTime = new Date(commitment.expiresAt).getTime();
         const now = new Date().getTime();
         if (now < expiryTime) {
           throw new BackendError({
-            code: "BAD_REQUEST",
+            code: "NOT_MATURED",
             message: "Commitment has not matured yet and cannot be settled.",
             status: 400,
           });
         }
+      } else {
+        throw new BackendError({
+          code: "NOT_MATURED",
+          message: "Commitment maturity information is missing. Cannot settle.",
+          status: 400,
+        });
       }
-      // TODO: Add additional maturity checks if needed
-      // For now, we'll allow settling active commitments
     }
 
     // Call the settlement function on the contract
@@ -712,112 +991,64 @@ export async function settleCommitmentOnChain(
       details: {
         method: "settle_commitment",
         commitmentId: params.commitmentId,
+        requestId: loggingContext?.requestId,
       },
     });
   }
 }
 
-export async function earlyExitCommitmentOnChain(
-  params: EarlyExitCommitmentOnChainParams
-): Promise<EarlyExitCommitmentOnChainResult> {
-  try {
-    if (!params.commitmentId) {
-      throw new BackendError({
-        code: 'BAD_REQUEST',
-        message: 'Missing commitment id for early exit.',
-        status: 400
-      });
-    }
-
-    const commitment = await getCommitmentFromChain(params.commitmentId);
-
-    if (commitment.status === 'SETTLED') {
-      throw new BackendError({
-        code: 'CONFLICT',
-        message: 'Commitment has already been settled and cannot be exited early.',
-        status: 409
-      });
-    }
-
-    if (commitment.status === 'EARLY_EXIT') {
-      throw new BackendError({
-        code: 'CONFLICT',
-        message: 'Commitment has already been exited early.',
-        status: 409
-      });
-    }
-
-    if (commitment.status === 'VIOLATED') {
-      throw new BackendError({
-        code: 'CONFLICT',
-        message: 'Commitment has been violated and cannot be exited early.',
-        status: 409
-      });
-    }
-
-    const invocation = await invokeContractMethod(
-      getContractId('commitmentCore'),
-      'early_exit_commitment',
-      [params.commitmentId, params.callerAddress ?? commitment.ownerAddress],
-      'write'
-    );
-
-    const result = asRecord(invocation.value);
-    const exitAmount = asString(result.exitAmount, '0');
-    const penaltyAmount = asString(result.penaltyAmount, '0');
-    const finalStatus = asString(result.finalStatus, 'EARLY_EXIT');
-
-    return {
-      exitAmount,
-      penaltyAmount,
-      finalStatus,
-      txHash: invocation.txHash,
-      reference: invocation.txHash ? undefined : `TODO_CHAIN_CALL_EARLY_EXIT`
-    };
-  } catch (error) {
-    throw normalizeBackendError(error, {
-      code: 'BLOCKCHAIN_CALL_FAILED',
-      message: 'Unable to exit commitment early on chain.',
-      status: 502,
-      details: { method: 'early_exit_commitment', commitmentId: params.commitmentId }
-    });
-  }
-}
-
-export interface TransferOwnershipParams {
-  commitmentId: string;
-  fromAddress: string;
-  toAddress: string;
-}
-
-export interface TransferOwnershipResult {
-  commitmentId: string;
-  newOwner: string;
-  txHash?: string;
-  reference?: string;
-}
-
-export async function transferOwnership(
-  params: TransferOwnershipParams,
-): Promise<TransferOwnershipResult> {
+export async function fundEscrowOnChain(
+  params: FundEscrowOnChainParams,
+): Promise<FundEscrowOnChainResult> {
   try {
     if (!params.commitmentId) {
       throw new BackendError({
         code: "BAD_REQUEST",
-        message: "Missing commitment id for ownership transfer.",
+        message: "Missing commitment id for funding.",
         status: 400,
       });
     }
-    validateOwnerAddress(params.fromAddress);
-    validateOwnerAddress(params.toAddress);
+
+    if (params.callerAddress) {
+      validateOwnerAddress(params.callerAddress);
+    }
+
+    const commitment = await getCommitmentFromChain(params.commitmentId);
+
+    if (!commitment) {
+      throw new BackendError({
+        code: "NOT_FOUND",
+        message: "Commitment not found.",
+        status: 404,
+        details: { commitmentId: params.commitmentId },
+      });
+    }
+
+    if (commitment.status !== "CREATED") {
+      throw new BackendError({
+        code: "CONFLICT",
+        message: "Only created commitments can be funded.",
+        status: 409,
+        details: { commitmentId: params.commitmentId, status: commitment.status },
+      });
+    }
+
+    const callerAddress = params.callerAddress ?? commitment.ownerAddress;
+    if (!callerAddress || callerAddress !== commitment.ownerAddress) {
+      throw new BackendError({
+        code: "FORBIDDEN",
+        message: "Only the commitment owner may fund this commitment.",
+        status: 403,
+        details: { commitmentId: params.commitmentId, callerAddress },
+      });
+    }
 
     const invocation = await invokeContractMethod(
       getContractId("commitmentCore"),
-      "transfer_ownership",
+      "fund_escrow",
       [
         nativeToScVal(params.commitmentId),
-        new Address(params.fromAddress).toScVal(),
-        new Address(params.toAddress).toScVal(),
+        new Address(callerAddress).toScVal(),
       ],
       "write",
     );
@@ -826,15 +1057,15 @@ export async function transferOwnership(
     void countersAdapter.incrementSuccessfulActions();
 
     void cache.delete(CacheKey.commitment(params.commitmentId));
-    void cache.delete(CacheKey.userCommitments(params.fromAddress));
-    void cache.delete(CacheKey.userCommitments(params.toAddress));
+    if (commitment.ownerAddress) {
+      void cache.delete(CacheKey.userCommitments(commitment.ownerAddress));
+    }
 
-    const result = asRecord(invocation.value);
     return {
       commitmentId: params.commitmentId,
-      newOwner: asString(result.newOwner, params.toAddress),
       txHash: invocation.txHash,
-      reference: invocation.txHash ? undefined : "TODO_CHAIN_CALL_TRANSFER_OWNERSHIP",
+      contractVersion: invocation.version,
+      reference: invocation.txHash ? undefined : "TODO_CHAIN_CALL_FUND_ESCROW",
     };
   } catch (error) {
     const countersAdapter = getCountersAdapter();
@@ -842,9 +1073,216 @@ export async function transferOwnership(
 
     throw normalizeBackendError(error, {
       code: "BLOCKCHAIN_CALL_FAILED",
-      message: "Unable to transfer commitment ownership on chain.",
+      message: "Unable to fund escrow on chain.",
       status: 502,
-      details: { method: "transfer_ownership", commitmentId: params.commitmentId },
+      details: {
+        method: "fund_escrow",
+        commitmentId: params.commitmentId,
+      },
+    });
+  }
+}
+
+export async function earlyExitCommitmentOnChain(
+  params: EarlyExitCommitmentOnChainParams,
+  loggingContext?: LoggingContext,
+): Promise<EarlyExitCommitmentOnChainResult> {
+  try {
+    if (!params.commitmentId) {
+      throw new BackendError({
+        code: "BAD_REQUEST",
+        message: "Missing commitment id for early exit.",
+        status: 400,
+      });
+    }
+
+    const commitment = await getCommitmentFromChain(params.commitmentId, loggingContext);
+
+    if (commitment.status === "SETTLED") {
+      throw new BackendError({
+        code: "CONFLICT",
+        message:
+          "Commitment has already been settled and cannot be exited early.",
+        status: 409,
+      });
+    }
+
+    if (commitment.status === "EARLY_EXIT") {
+      throw new BackendError({
+        code: "CONFLICT",
+        message: "Commitment has already been exited early.",
+        status: 409,
+      });
+    }
+
+    if (commitment.status === "VIOLATED") {
+      throw new BackendError({
+        code: "CONFLICT",
+        message: "Commitment has been violated and cannot be exited early.",
+        status: 409,
+      });
+    }
+
+    const invocation = await invokeContractMethod(
+      getContractId("commitmentCore"),
+      "early_exit_commitment",
+      [params.commitmentId, params.callerAddress ?? commitment.ownerAddress],
+      "write",
+    );
+
+    const result = asRecord(invocation.value);
+    const exitAmount = asString(result.exitAmount, "0");
+    const penaltyAmount = asString(result.penaltyAmount, "0");
+    const finalStatus = asString(result.finalStatus, "EARLY_EXIT");
+
+    return {
+      exitAmount,
+      penaltyAmount,
+      finalStatus,
+      txHash: invocation.txHash,
+      contractVersion: invocation.version,
+      reference: invocation.txHash ? undefined : `TODO_CHAIN_CALL_EARLY_EXIT`,
+    };
+  } catch (error) {
+    throw normalizeContractError(error, {
+      code: "BLOCKCHAIN_CALL_FAILED",
+      message: "Unable to exit commitment early on chain.",
+      status: 502,
+      details: {
+        method: "early_exit_commitment",
+        commitmentId: params.commitmentId,
+      },
+    });
+  }
+}
+
+export async function openDisputeOnChain(
+  params: DisputeOnChainParams,
+): Promise<DisputeOnChainResult> {
+  try {
+    if (!params.commitmentId) {
+      throw new BackendError({
+        code: "BAD_REQUEST",
+        message: "Missing commitment id for dispute.",
+        status: 400,
+      });
+    }
+
+    const commitment = await getCommitmentFromChain(params.commitmentId);
+
+    if (commitment.status === "SETTLED" || commitment.status === "EARLY_EXIT") {
+      throw new BackendError({
+        code: "CONFLICT",
+        message: "Cannot dispute a commitment that is already settled or exited.",
+        status: 409,
+      });
+    }
+
+    if (commitment.status === "DISPUTED") {
+      throw new BackendError({
+        code: "CONFLICT",
+        message: "Commitment is already in dispute.",
+        status: 409,
+      });
+    }
+
+    const invocation = await invokeContractMethod(
+      getContractId("commitmentCore"),
+      "early_exit_commitment",
+      [params.commitmentId, params.callerAddress ?? commitment.ownerAddress],
+      "write",
+    );
+
+    const result = asRecord(invocation.value);
+    const exitAmount = asString(result.exitAmount, "0");
+    const penaltyAmount = asString(result.penaltyAmount, "0");
+    const finalStatus = asString(result.finalStatus, "EARLY_EXIT");
+
+    await cache.delete(CacheKey.commitment(params.commitmentId));
+    if (commitment.ownerAddress) {
+      await cache.delete(CacheKey.userCommitments(commitment.ownerAddress));
+    }
+
+    return {
+      exitAmount,
+      penaltyAmount,
+      finalStatus,
+      txHash: invocation.txHash,
+      reference: invocation.txHash ? undefined : "TODO_CHAIN_CALL_EARLY_EXIT",
+    };
+  } catch (error) {
+    throw normalizeContractError(error, {
+      code: "BLOCKCHAIN_CALL_FAILED",
+      message: "Unable to exit commitment early on chain.",
+      status: 502,
+      details: {
+        method: "early_exit_commitment",
+        commitmentId: params.commitmentId,
+      },
+    });
+  }
+}
+
+export async function resolveDisputeOnChain(
+  params: ResolveDisputeOnChainParams,
+): Promise<ResolveDisputeOnChainResult> {
+  try {
+    if (!params.commitmentId) {
+      throw new BackendError({
+        code: "BAD_REQUEST",
+        message: "Missing commitment id for dispute resolution.",
+        status: 400,
+      });
+    }
+
+    const commitment = await getCommitmentFromChain(params.commitmentId);
+
+    if (commitment.status !== "DISPUTED") {
+      throw new BackendError({
+        code: "CONFLICT",
+        message: "Can only resolve a commitment that is currently in dispute.",
+        status: 409,
+      });
+    }
+
+    const invocation = await invokeContractMethod(
+      getContractId("commitmentCore"),
+      "resolve_dispute",
+      [params.commitmentId, params.resolution, params.notes ?? ""],
+      "write",
+    );
+
+    const result = asRecord(invocation.value);
+    const disputeId = asString(result.disputeId ?? result.id);
+    const finalStatus = asString(result.finalStatus, "ACTIVE");
+
+    // Status changed — invalidate detail and owner list.
+    await cache.delete(CacheKey.commitment(params.commitmentId));
+    if (commitment.ownerAddress) {
+      await cache.delete(CacheKey.userCommitments(commitment.ownerAddress));
+    }
+    logInfo(undefined, "[cache] invalidated commitment after dispute resolution", {
+      commitmentId: params.commitmentId,
+    });
+
+    return {
+      commitmentId: params.commitmentId,
+      disputeId: disputeId || `dsp-${params.commitmentId}`,
+      resolution: params.resolution,
+      finalStatus,
+      txHash: invocation.txHash,
+      resolvedAt: new Date().toISOString(),
+    };
+  } catch (error) {
+    throw normalizeBackendError(error, {
+      code: "BLOCKCHAIN_CALL_FAILED",
+      message: "Unable to resolve dispute on chain.",
+      status: 502,
+      details: {
+        method: "resolve_dispute",
+        commitmentId: params.commitmentId,
+        requestId: loggingContext?.requestId,
+      },
     });
   }
 }

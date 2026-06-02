@@ -41,15 +41,23 @@ vi.mock('@/lib/backend/services/contracts', () => ({
   createCommitmentOnChain: vi.fn(),
   getCommitmentFromChain: vi.fn(),
   settleCommitmentOnChain: vi.fn(),
+  earlyExitCommitmentOnChain: vi.fn(),
 }));
 
 vi.mock('@/lib/backend/csrf', () => ({
   assertMutationCsrf: vi.fn(),
 }));
 
+vi.mock('@/lib/backend/requireAuth', () => ({
+  requireAuth: vi.fn(),
+}));
+
 import { checkRateLimit } from '@/lib/backend/rateLimit';
+import { requireAuth } from '@/lib/backend/requireAuth';
 
 const mockedCheckRateLimit = vi.mocked(checkRateLimit);
+const mockedRequireAuth = vi.mocked(requireAuth);
+const VALID_ADDRESS = `G${'A'.repeat(55)}`;
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -173,7 +181,12 @@ describe('POST /api/commitments/[id]/settle — rate limiting', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('POST /api/commitments/[id]/early-exit — rate limiting', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockedRequireAuth.mockReturnValue({
+      user: { address: VALID_ADDRESS, csrfToken: 'csrf-token' },
+    } as any);
+  });
 
   it('returns 429 with Retry-After when rate limit is exceeded', async () => {
     mockedCheckRateLimit.mockResolvedValue(false);
@@ -203,10 +216,26 @@ describe('POST /api/commitments/[id]/early-exit — rate limiting', () => {
   });
 
   it('allows the request through when rate limit is not exceeded', async () => {
+    const { getCommitmentFromChain, earlyExitCommitmentOnChain } = await import('@/lib/backend/services/contracts');
+    vi.mocked(getCommitmentFromChain).mockResolvedValue({
+      id: 'abc',
+      ownerAddress: VALID_ADDRESS,
+      status: 'ACTIVE',
+    } as any);
+    vi.mocked(earlyExitCommitmentOnChain).mockResolvedValue({
+      exitAmount: '95',
+      penaltyAmount: '5',
+      finalStatus: 'EARLY_EXIT',
+      txHash: 'tx-1',
+      reference: 'ref-1',
+    } as any);
     mockedCheckRateLimit.mockResolvedValue(true);
 
     const { POST } = await import('@/app/api/commitments/[id]/early-exit/route');
-    const req = postRequest('http://localhost:3000/api/commitments/abc/early-exit', {});
+    const req = postRequest('http://localhost:3000/api/commitments/abc/early-exit', {
+      reason: 'Need liquidity',
+      callerAddress: VALID_ADDRESS,
+    });
     const response = await POST(req, createMockRouteContext({ id: 'abc' }));
 
     expect(response.status).not.toBe(429);
