@@ -18,7 +18,8 @@
 //! `fund_escrow`, `release`, `refund`, and `dispute`.
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, Address, BytesN, Env, String, Symbol, Vec,
+    contract, contracterror, contractimpl, contracttype, Address, BytesN, Env, IntoVal, Map,
+    String, Symbol, Val, Vec,
 };
 
 // Configuration constants for escrow contract
@@ -65,6 +66,8 @@ pub enum DataKey {
     Attestations(u64),
     /// Configurable penalty-free grace period before maturity, in seconds.
     GracePeriodSeconds,
+    /// Score threshold below which a funded commitment is auto-violated.
+    ViolationThreshold,
 }
 
 /// Risk profile chosen at creation time. Determines the early-exit penalty
@@ -184,6 +187,8 @@ pub enum Error {
     InvalidWasmHash = 13,
     /// Commitment is in Violated status; release and refund are blocked until resolved.
     CommitmentViolated = 14,
+    /// Owner does not have enough tokens to fund the escrow.
+    InsufficientBalance = 15,
 }
 
 /// Result of an early exit commitment.
@@ -194,6 +199,66 @@ pub struct EarlyExitResult {
     pub exitAmount: i128,
     pub penaltyAmount: i128,
     pub finalStatus: EscrowStatus,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CreateCommitmentEventData {
+    pub asset: Address,
+    pub amount: i128,
+    pub risk: RiskProfile,
+    pub maturity: u64,
+    pub penalty_bps: u32,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FundEscrowEventData {
+    pub asset: Address,
+    pub amount: i128,
+    pub risk: RiskProfile,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReleaseEventData {
+    pub asset: Address,
+    pub amount: i128,
+    pub accrued_yield: i128,
+    pub payout: i128,
+    pub risk: RiskProfile,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RefundEventData {
+    pub asset: Address,
+    pub amount: i128,
+    pub refunded_amount: i128,
+    pub penalty: i128,
+    pub risk: RiskProfile,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DisputeEventData {
+    pub asset: Address,
+    pub amount: i128,
+    pub risk: RiskProfile,
+    pub reason_category: DisputeReason,
+    pub reason_text: String,
+    pub disputed_by: Address,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ResolveDisputeEventData {
+    pub asset: Address,
+    pub amount: i128,
+    pub payout: i128,
+    pub penalty: i128,
+    pub risk: RiskProfile,
+    pub release_to_owner: bool,
 }
 
 
@@ -365,69 +430,15 @@ impl EscrowContract {
 
         let id = Self::next_id(&env);
         let now = env.ledger().timestamp();
-        let maturity = now.checked_add((duration_days as u64).checked_mul(SECONDS_PER_DAY).ok_or(Error::InvalidDuration)?).ok_or(Error::InvalidDuration)?;
+        let maturity = now
+            .checked_add(
+                (duration_days as u64)
+                    .checked_mul(SECONDS_PER_DAY)
+                    .ok_or(Error::InvalidDuration)?,
+            )
+            .ok_or(Error::InvalidDuration)?;
+        let accrued_yield = Self::calculate_accrued_yield(amount, duration_days, risk)?;
 
-        let commitment = Commitment {
-            id,
-            owner: owner.clone(),
-            asset,
-            amount,
-            accrued_yield: 0,
-            risk,
-            status: EscrowStatus::Created,
-            maturity,
-            penalty_bps,
-            compliance_score: 100,
-            created_at: now,
-        };
-
-        env.storage()
-            .persistent()
-            .set(&DataKey::Commitment(id), &commitment);
-        Self::index_owner(&env, &owner, id);
-
-        env.events().publish(
-            (Symbol::new(&env, "create_commitment"), owner),
-            (id, amount, maturity),
-        );
-        Ok(id)
-    }
-
-    /// Create a new (unfunded) commitment escrow using the default penalty for
-    /// the specified risk profile. Returns the new commitment id.
-    ///
-    /// This function inherits the penalty_bps from the risk profile defaults
-    /// configured at initialization time. If an explicit penalty override is
-    /// needed, use `create_commitment()` instead.
-    ///
-    /// `duration_days` is converted to an absolute maturity timestamp using the
-    /// current ledger time.
-    pub fn create_commitment_with_default_penalty(
-        env: Env,
-        owner: Address,
-        asset: Address,
-        amount: i128,
-        risk: RiskProfile,
-        duration_days: u32,
-    ) -> Result<u64, Error> {
-        Self::require_init(&env)?;
-        owner.require_auth();
-
-        if amount <= 0 {
-            return Err(Error::InvalidAmount);
-        }
-        if duration_days == 0 {
-            return Err(Error::InvalidDuration);
-        }
-
-        // Retrieve the default penalty for this risk profile.
-        let penalty_bps = Self::get_default_penalty_internal(&env, risk)?;
-
-        let id = Self::next_id(&env);
-        let now = env.ledger().timestamp();
-        let maturity = now + (duration_days as u64) * SECONDS_PER_DAY;
-
-        let accrued_yield = calculate_accrued_yield(amount, duration_days, risk);
         let commitment = Commitment {
             id,
             owner: owner.clone(),
@@ -448,9 +459,99 @@ impl EscrowContract {
             .set(&DataKey::Commitment(id), &commitment);
         Self::index_owner(&env, &owner, id);
 
-        env.events().publish(
-            (Symbol::new(&env, "create_commitment"), owner),
-            (id, amount, maturity),
+        Self::publish_commitment_event(
+            &env,
+            "create_commitment",
+            &commitment,
+            CreateCommitmentEventData {
+                asset: commitment.asset.clone(),
+                amount: commitment.amount,
+                risk: commitment.risk,
+                maturity: commitment.maturity,
+                penalty_bps: commitment.penalty_bps,
+            },
+        );
+        Ok(id)
+    }
+
+    /// Create a new (unfunded) commitment escrow using the default penalty for
+    /// the specified risk profile. Returns the new commitment id.
+    ///
+    /// This function inherits the penalty_bps from the risk profile defaults
+    /// configured at initialization time. If an explicit penalty override is
+    /// needed, use `create_commitment()` instead.
+    ///
+    /// `duration_days` is converted to an absolute maturity timestamp using the
+    /// current ledger time.
+    pub fn create_commitment_with_default(
+        env: Env,
+        owner: Address,
+        asset: Address,
+        amount: i128,
+        risk: RiskProfile,
+        duration_days: u32,
+    ) -> Result<u64, Error> {
+        Self::require_init(&env)?;
+        Self::require_not_paused(&env)?;
+        owner.require_auth();
+
+        if amount <= 0 {
+            return Err(Error::InvalidAmount);
+        }
+        if amount > MAX_AMOUNT {
+            return Err(Error::InvalidAmount);
+        }
+        if duration_days == 0 {
+            return Err(Error::InvalidDuration);
+        }
+        if duration_days > MAX_DURATION_DAYS {
+            return Err(Error::InvalidDuration);
+        }
+
+        // Retrieve the default penalty for this risk profile.
+        let penalty_bps = Self::get_default_penalty_internal(&env, risk)?;
+
+        let id = Self::next_id(&env);
+        let now = env.ledger().timestamp();
+        let maturity = now
+            .checked_add(
+                (duration_days as u64)
+                    .checked_mul(SECONDS_PER_DAY)
+                    .ok_or(Error::InvalidDuration)?,
+            )
+            .ok_or(Error::InvalidDuration)?;
+        let accrued_yield = Self::calculate_accrued_yield(amount, duration_days, risk)?;
+        let commitment = Commitment {
+            id,
+            owner: owner.clone(),
+            asset,
+            amount,
+            accrued_yield,
+            risk,
+            status: EscrowStatus::Created,
+            maturity,
+            penalty_bps,
+            compliance_score: 100,
+            created_at: now,
+            metadata: Map::new(&env),
+        };
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::Commitment(id), &commitment);
+        Self::index_owner(&env, &owner, id);
+
+        Self::publish_commitment_event(
+            &env,
+            "create_commitment",
+            &commitment,
+            CreateCommitmentEventData {
+                asset: commitment.asset.clone(),
+                amount: commitment.amount,
+                risk: commitment.risk,
+                maturity: commitment.maturity,
+                penalty_bps: commitment.penalty_bps,
+            },
         );
         Ok(id)
     }
@@ -504,9 +605,15 @@ impl EscrowContract {
         c.status = EscrowStatus::Funded;
         Self::save(&env, &c);
 
-        env.events().publish(
-            (Symbol::new(&env, "fund_escrow"), c.owner.clone()),
-            (commitment_id, c.amount),
+        Self::publish_commitment_event(
+            &env,
+            "fund_escrow",
+            &c,
+            FundEscrowEventData {
+                asset: c.asset.clone(),
+                amount: c.amount,
+                risk: c.risk,
+            },
         );
         Ok(())
     }
@@ -685,7 +792,7 @@ impl EscrowContract {
         // Basis points represent a fraction out of 10_000. The penalty is the
         // floor of `amount * penalty_bps / 10_000`, so refund + penalty always
         // partitions the original principal while staying within checked math.
-        let (penalty, refund_amount) = Self::compute_refund_amount(c.amount, c.penalty_bps)?;
+        let (penalty, refund_amount) = Self::compute_refund_amount(amount, c.penalty_bps)?;
 
         // Update the stored principal; remainder stays in escrow.
         let remaining = c
@@ -806,9 +913,18 @@ impl EscrowContract {
             .persistent()
             .set(&DataKey::Dispute(commitment_id), &dispute_record);
 
-        env.events().publish(
-            (Symbol::new(&env, "dispute"), caller),
-            (commitment_id, reason_category as u32, reason),
+        Self::publish_commitment_event(
+            &env,
+            "dispute",
+            &c,
+            DisputeEventData {
+                asset: c.asset.clone(),
+                amount: c.amount,
+                risk: c.risk,
+                reason_category,
+                reason_text: reason,
+                disputed_by: caller,
+            },
         );
         Ok(())
     }
@@ -1122,6 +1238,8 @@ impl EscrowContract {
         );
 
         Ok(())
+    }
+
     /// Return the list of attestation history for a commitment id.
     ///
     /// # Authorization
@@ -1166,7 +1284,7 @@ impl EscrowContract {
 
     /// Retrieve the default penalty (in basis points) for a specific risk profile.
     /// Configured at initialization time and used by
-    /// `create_commitment_with_default_penalty()`. Useful for querying the
+    /// `create_commitment_with_default()`. Useful for querying the
     /// current penalty configuration.
     ///
     /// # Authorization
@@ -1261,9 +1379,17 @@ impl EscrowContract {
         c.status = EscrowStatus::Refunded;
         Self::save(env, &c);
 
-        env.events().publish(
-            (Symbol::new(env, "refund"), c.owner.clone()),
-            (c.id, refund_amount, penalty),
+        Self::publish_commitment_event(
+            env,
+            "refund",
+            &c,
+            RefundEventData {
+                asset: c.asset.clone(),
+                amount: c.amount,
+                refunded_amount: refund_amount,
+                penalty,
+                risk: c.risk,
+            },
         );
         Ok((refund_amount, penalty))
     }
@@ -1295,6 +1421,49 @@ impl EscrowContract {
         let refund_amount = amount.checked_sub(penalty).ok_or(Error::InvalidAmount)?;
 
         Ok((penalty, refund_amount))
+    }
+
+    fn get_default_penalty_internal(env: &Env, risk: RiskProfile) -> Result<u32, Error> {
+        env.storage()
+            .instance()
+            .get(&DataKey::DefaultPenalty(risk))
+            .ok_or(Error::NotInitialized)
+    }
+
+    fn calculate_accrued_yield(
+        amount: i128,
+        duration_days: u32,
+        risk: RiskProfile,
+    ) -> Result<i128, Error> {
+        let annual_bps = match risk {
+            RiskProfile::Safe => 500,
+            RiskProfile::Balanced => 700,
+            RiskProfile::Aggressive => 1_000,
+        } as i128;
+
+        amount
+            .checked_mul(annual_bps)
+            .and_then(|value| value.checked_mul(duration_days as i128))
+            .map(|value| value / (365 * MAX_PENALTY_BPS as i128))
+            .ok_or(Error::InvalidAmount)
+    }
+
+    // Keep lifecycle event topic positions stable for the off-chain indexer:
+    // `(event_name, owner, commitment_id)`.
+    fn publish_commitment_event<D: IntoVal<Env, Val>>(
+        env: &Env,
+        event_name: &str,
+        commitment: &Commitment,
+        data: D,
+    ) {
+        env.events().publish(
+            (
+                Symbol::new(env, event_name),
+                commitment.owner.clone(),
+                commitment.id,
+            ),
+            data,
+        );
     }
 
     fn grace_period_seconds(env: &Env) -> u64 {
@@ -1358,7 +1527,7 @@ impl EscrowContract {
 
     /// Remove `id` from `owner`'s OwnerIndex list.
     fn deindex_owner(env: &Env, owner: &Address, id: u64) {
-        let mut ids: Vec<u64> = env
+        let ids: Vec<u64> = env
             .storage()
             .persistent()
             .get(&DataKey::OwnerIndex(owner.clone()))
@@ -1391,7 +1560,7 @@ impl EscrowContract {
         env.storage().instance().set(&DataKey::YieldPool, &amount);
     }
 
-    fn token_client(env: &Env) -> soroban_sdk::token::Client {
+    fn token_client(env: &Env) -> soroban_sdk::token::Client<'_> {
         let token: Address = env
             .storage()
             .instance()
@@ -1403,23 +1572,66 @@ impl EscrowContract {
     /// Categorize a free-form dispute reason string into a DisputeReason enum.
     /// Uses keyword matching to detect common dispute categories.
     fn categorize_dispute_reason(reason: &String) -> DisputeReason {
-        let reason_lower = reason.to_lowercase();
-        
-        // Check for keywords in order of specificity.
-        if reason_lower.contains("value") || reason_lower.contains("mismatch") 
-            || reason_lower.contains("amount") || reason_lower.contains("delivered") {
+        if Self::string_contains_ignore_case(reason, b"value")
+            || Self::string_contains_ignore_case(reason, b"mismatch")
+            || Self::string_contains_ignore_case(reason, b"amount")
+            || Self::string_contains_ignore_case(reason, b"delivered")
+        {
             DisputeReason::ValueMismatch
-        } else if reason_lower.contains("compliance") || reason_lower.contains("attestation")
-            || reason_lower.contains("failed") || reason_lower.contains("violation") {
+        } else if Self::string_contains_ignore_case(reason, b"compliance")
+            || Self::string_contains_ignore_case(reason, b"attestation")
+            || Self::string_contains_ignore_case(reason, b"failed")
+            || Self::string_contains_ignore_case(reason, b"violation")
+        {
             DisputeReason::NonCompliance
-        } else if reason_lower.contains("fraud") || reason_lower.contains("unauthorized")
-            || reason_lower.contains("suspicious") || reason_lower.contains("suspicious") {
+        } else if Self::string_contains_ignore_case(reason, b"fraud")
+            || Self::string_contains_ignore_case(reason, b"unauthorized")
+            || Self::string_contains_ignore_case(reason, b"suspicious")
+        {
             DisputeReason::FraudSuspicion
-        } else if reason_lower.contains("operational") || reason_lower.contains("failure")
-            || reason_lower.contains("delivery") {
+        } else if Self::string_contains_ignore_case(reason, b"operational")
+            || Self::string_contains_ignore_case(reason, b"failure")
+            || Self::string_contains_ignore_case(reason, b"delivery")
+        {
             DisputeReason::OperationalFailure
         } else {
             DisputeReason::Other
+        }
+    }
+
+    fn string_contains_ignore_case(haystack: &String, needle: &[u8]) -> bool {
+        let bytes = haystack.to_bytes();
+        if needle.is_empty() || bytes.len() < needle.len() as u32 {
+            return false;
+        }
+
+        let mut start: u32 = 0;
+        while start + needle.len() as u32 <= bytes.len() {
+            let mut matched = true;
+            let mut offset: u32 = 0;
+            while offset < needle.len() as u32 {
+                let hay = bytes.get(start + offset).unwrap();
+                let pattern = needle[offset as usize];
+                if Self::ascii_lower(hay) != Self::ascii_lower(pattern) {
+                    matched = false;
+                    break;
+                }
+                offset += 1;
+            }
+            if matched {
+                return true;
+            }
+            start += 1;
+        }
+
+        false
+    }
+
+    fn ascii_lower(byte: u8) -> u8 {
+        if byte >= b'A' && byte <= b'Z' {
+            byte + 32
+        } else {
+            byte
         }
     }
 }

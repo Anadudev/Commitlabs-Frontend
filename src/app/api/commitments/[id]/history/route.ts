@@ -66,6 +66,7 @@ const DEFAULT_HISTORY_PAGE_SIZE = 20;
 export const GET = withApiHandler(async (
   req: NextRequest,
   context: { params: Record<string, string> },
+  correlationId: string,
 ) => {
   const commitmentId = context.params.id;
 
@@ -90,8 +91,8 @@ export const GET = withApiHandler(async (
   // Resolve commitment — throws NotFoundError (→ 404) if absent
   let commitment;
   try {
-      commitment = await getCommitmentFromChain(commitmentId, { requestId: correlationId });
-  } catch {
+    commitment = await getCommitmentFromChain(commitmentId, { requestId: correlationId });
+  } catch (err) {
     throw new NotFoundError('Commitment', { commitmentId });
   }
 

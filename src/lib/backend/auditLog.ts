@@ -40,6 +40,8 @@ export function getAuditLog(commitmentId: string): AuditLogEntry[] {
 
 export function clearAuditLog(): void {
     auditLogStore.length = 0;
+}
+
 /**
  * Audit Event Store
  *
@@ -101,7 +103,38 @@ export type RedactedAuditEvent = Omit<AuditEvent, 'actor' | 'ip'> & {
   actor: string;
   ip: string;
 };
+export interface AuditEventFilters {
+  actor?: string;
+  type?: string;
+  startTime?: string;
+  endTime?: string;
+}
 
+function filterAuditEvents(events: AuditEvent[], filters: AuditEventFilters): AuditEvent[] {
+  return events.filter((event) => {
+    if (filters.actor && (!event.actor || event.actor.toLowerCase() !== filters.actor.toLowerCase())) {
+      return false;
+    }
+
+    if (filters.type && event.action !== filters.type) {
+      return false;
+    }
+
+    const eventTime = new Date(event.timestamp).getTime();
+    if (filters.startTime && eventTime < new Date(filters.startTime).getTime()) {
+      return false;
+    }
+    if (filters.endTime && eventTime > new Date(filters.endTime).getTime()) {
+      return false;
+    }
+
+    return true;
+  });
+}
+
+function getAllStoredAuditEvents(): AuditEvent[] {
+  return activeStore.recent(MAX_BUFFER_SIZE);
+}
 // ─── Sensitive field redaction ────────────────────────────────────────────────
 
 const REDACTED = '[REDACTED]';
@@ -251,19 +284,42 @@ export async function appendAuditEvent(
  * @param limit - Maximum number of events to return (1–200).
  */
 export async function getRecentAuditEvents(
-  limit: number
+  limit: number,
+  filters?: AuditEventFilters
 ): Promise<RedactedAuditEvent[]> {
   if (!isAuditLogEnabled()) return [];
 
-  const events = await activeStore.recent(limit);
-  return events.map(redactAuditEvent);
+  const hasFilters =
+    filters !== undefined &&
+    (filters.actor !== undefined ||
+      filters.type !== undefined ||
+      filters.startTime !== undefined ||
+      filters.endTime !== undefined);
+
+  const events = hasFilters
+    ? filterAuditEvents(getAllStoredAuditEvents(), filters)
+    : await activeStore.recent(limit);
+
+  return events.slice(0, limit).map(redactAuditEvent);
 }
 
 /**
- * Returns the total number of events currently in the store.
+ * Returns the total number of events matching a filter set.
  * Returns 0 when the feature flag is disabled.
  */
-export async function getAuditEventCount(): Promise<number> {
+export async function getAuditEventCount(filters?: AuditEventFilters): Promise<number> {
   if (!isAuditLogEnabled()) return 0;
+
+  const hasFilters =
+    filters !== undefined &&
+    (filters.actor !== undefined ||
+      filters.type !== undefined ||
+      filters.startTime !== undefined ||
+      filters.endTime !== undefined);
+
+  if (hasFilters) {
+    return filterAuditEvents(getAllStoredAuditEvents(), filters).length;
+  }
+
   return activeStore.size();
 }

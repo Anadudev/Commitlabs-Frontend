@@ -101,11 +101,19 @@ export const POST = withApiHandler(async (req: NextRequest, { params }, correlat
       txHash: settlementResult.txHash,
       reference: settlementResult.reference,
       settledAt: new Date().toISOString(),
-    }, { requestId: correlationId },
-    undefined,
-    200,
-    correlationId,
-  );
+    };
+
+    if (idempotencyKey) {
+      await idempotencyService.complete(idempotencyKey, responseData, 200);
+    }
+
+    return ok(responseData, undefined, 200, correlationId);
+  } catch (error) {
+    if (idempotencyKey) {
+      await idempotencyService.fail(idempotencyKey);
+    }
+    throw error;
+  }
 }, { cors: COMMITMENT_SETTLE_CORS_POLICY });
 
 const _405 = methodNotAllowed(['POST']);

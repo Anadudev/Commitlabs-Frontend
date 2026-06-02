@@ -48,7 +48,9 @@ export type DisputeReasonInput = z.infer<typeof DisputeReasonSchema>;
 export type ResolveDisputeInput = z.infer<typeof ResolveDisputeSchema>;
 export const createAttestationSchema = z.object({
   commitmentId: z.string().min(1, "Commitment ID is required"),
-  attesterAddress: addressSchema,
+  attesterAddress: z.string().trim().refine((addr) => StrKey.isValidEd25519PublicKey(addr), {
+    message: "Must be a valid Stellar address (G... format).",
+  }),
   rating: z.number().int().min(1).max(5, "Rating must be between 1 and 5"),
   comment: z.string().optional(),
 });
@@ -309,6 +311,22 @@ export const stellarAddressSchema = z
   .refine((addr) => StrKey.isValidEd25519PublicKey(addr), {
     message: "Must be a valid Stellar address (G... format).",
   });
+
+// Backwards-compatible alias expected by some modules/tests
+export const addressSchema = stellarAddressSchema;
+
+// Amount schema: accept number or numeric string and coerce to number
+const amountSchema = z.union([z.number(), z.string()]).transform((v) => {
+  const n = typeof v === 'string' ? parseFloat(v) : v;
+  if (typeof n !== 'number' || Number.isNaN(n)) throw new z.ZodError([]);
+  return n;
+}).refine((n) => n > 0, { message: 'Amount must be a positive number' });
+
+// Simple pagination schema
+const paginationSchema = z.object({
+  page: z.number().int().min(1).optional(),
+  limit: z.number().int().min(1).optional(),
+});
 
 // Validate amount (positive number, can be string or number)
 export function validateAmount(amount: string | number): number {
