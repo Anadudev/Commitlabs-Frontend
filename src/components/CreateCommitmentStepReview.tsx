@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   Shield,
   TrendingUp,
@@ -49,8 +49,13 @@ export default function CreateCommitmentStepReview({
   onSubmit,
   onEditStep,
 }: CreateCommitmentStepReviewProps) {
+  const headingRef = useRef<HTMLHeadingElement>(null);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [acknowledgedRisks, setAcknowledgedRisks] = useState(false);
+
+  useEffect(() => {
+    headingRef.current?.focus();
+  }, []);
 
   const canSubmit = acceptedTerms && acknowledgedRisks && !isSubmitting;
 
@@ -86,7 +91,7 @@ export default function CreateCommitmentStepReview({
         <WizardStepper currentStep={3} />
 
         <div className={styles.reviewHeading}>
-          <h2 className={styles.reviewTitle}>Review & Confirm</h2>
+          <h2 ref={headingRef} tabIndex={-1} className={styles.reviewTitle}>Review & Confirm</h2>
           <p className={styles.reviewSubtitle}>
             Please review your commitment details carefully — these parameters
             are enforced on-chain and cannot be changed after creation.
@@ -263,7 +268,17 @@ export default function CreateCommitmentStepReview({
         <div className={styles.checkboxSection}>
           <div
             className={styles.checkboxRow}
+            role="checkbox"
+            aria-checked={acceptedTerms}
+            aria-labelledby="terms-label"
+            tabIndex={0}
             onClick={() => setAcceptedTerms(!acceptedTerms)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                setAcceptedTerms(!acceptedTerms);
+              }
+            }}
           >
             <CheckCircle2
               className={`${styles.checkIcon} ${acceptedTerms ? styles.checkIconActive : ""}`}
@@ -271,9 +286,9 @@ export default function CreateCommitmentStepReview({
               aria-hidden="true"
             />
             <div className={styles.checkboxContent}>
-              <label>
+              <span id="terms-label">
                 <h4>I agree to the terms and conditions</h4>
-              </label>
+              </span>
               <p>
                 I have read and understand the{" "}
                 <a href="#" className={styles.link}>
@@ -286,7 +301,17 @@ export default function CreateCommitmentStepReview({
 
           <div
             className={styles.checkboxRow}
+            role="checkbox"
+            aria-checked={acknowledgedRisks}
+            aria-labelledby="risks-label"
+            tabIndex={0}
             onClick={() => setAcknowledgedRisks(!acknowledgedRisks)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                setAcknowledgedRisks(!acknowledgedRisks);
+              }
+            }}
           >
             <CheckCircle2
               className={`${styles.checkIcon} ${acknowledgedRisks ? styles.checkIconActive : ""}`}
@@ -294,9 +319,9 @@ export default function CreateCommitmentStepReview({
               aria-hidden="true"
             />
             <div className={styles.checkboxContent}>
-              <label>
+              <span id="risks-label">
                 <h4>I acknowledge the risks</h4>
-              </label>
+              </span>
               <p>
                 I understand that DeFi protocols carry inherent risks including
                 smart contract vulnerabilities, market volatility, and potential
@@ -322,7 +347,7 @@ export default function CreateCommitmentStepReview({
 
         {/* Footer */}
         <div className={styles.footer}>
-          {submitError && <p className={styles.submitError}>{submitError}</p>}
+          {submitError && <p className={styles.submitError} role="alert">{submitError}</p>}
           <button
             onClick={onSubmit}
             disabled={!canSubmit}

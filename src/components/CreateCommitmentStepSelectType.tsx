@@ -1,4 +1,5 @@
 'use client';
+import { useRef, useEffect } from 'react';
 import { Shield, TrendingUp, Flame, ArrowRight, ChevronLeft, Info } from 'lucide-react';
 import WizardStepper from './WizardStepper';
 import styles from './CreateCommitmentStepSelectType.module.css';
@@ -68,6 +69,12 @@ export default function CreateCommitmentStepSelectType({
   onNext,
   onBack,
 }: CreateCommitmentStepSelectTypeProps) {
+  const headingRef = useRef<HTMLHeadingElement>(null);
+
+  useEffect(() => {
+    headingRef.current?.focus();
+  }, []);
+
   const handleContinue = () => {
     if (selectedType) {
       onNext(selectedType);
@@ -92,7 +99,7 @@ export default function CreateCommitmentStepSelectType({
         <WizardStepper currentStep={1} />
 
         <div className={styles.titleSection}>
-          <h2 className={styles.sectionTitle}>Choose Your Commitment Type</h2>
+          <h2 ref={headingRef} tabIndex={-1} className={styles.sectionTitle}>Choose Your Commitment Type</h2>
           <p className={styles.sectionSubtitle}>
             Select the risk profile that matches your investment strategy
           </p>

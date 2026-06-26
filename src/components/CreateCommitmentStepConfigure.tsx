@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import WizardStepper from './WizardStepper'
 import styles from './CreateCommitmentStepConfigure.module.css'
 
@@ -45,9 +45,14 @@ export default function CreateCommitmentStepConfigure({
   amountError,
   maxLossWarning = false,
 }: CreateCommitmentStepConfigureProps) {
+  const headingRef = useRef<HTMLHeadingElement>(null)
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [slippageTolerance, setSlippageTolerance] = useState(1)
   const [liquidationBuffer, setLiquidationBuffer] = useState(5)
+
+  useEffect(() => {
+    headingRef.current?.focus()
+  }, [])
 
   // Inline validation messages
   const durationError =
@@ -103,7 +108,7 @@ export default function CreateCommitmentStepConfigure({
         <WizardStepper currentStep={2} />
 
         <div className={styles.sectionHeader}>
-          <h2 className={styles.sectionTitle}>Configure Parameters</h2>
+          <h2 ref={headingRef} tabIndex={-1} className={styles.sectionTitle}>Configure Parameters</h2>
           <p className={styles.sectionSubtitle}>
             Set your commitment amount, duration, and risk tolerance
           </p>
@@ -228,7 +233,15 @@ export default function CreateCommitmentStepConfigure({
                   onChange={handleMaxLossInputChange}
                   min="0"
                   max="100"
-                  aria-describedby="maxloss-hint maxloss-error"
+                  aria-describedby={
+                    [
+                      !maxLossError && !maxLossWarning ? 'maxloss-hint' : undefined,
+                      maxLossWarning && !maxLossError ? 'maxloss-warning' : undefined,
+                      maxLossError ? 'maxloss-error' : undefined,
+                    ]
+                      .filter(Boolean)
+                      .join(' ') || undefined
+                  }
                   aria-invalid={!!maxLossError}
                 />
                 <span className={`${styles.sliderValueLabel} ${maxLossWarning ? styles.warningLabel : ''}`}>
@@ -246,7 +259,7 @@ export default function CreateCommitmentStepConfigure({
             {maxLossError ? (
               <span id="maxloss-error" className={styles.errorText} role="alert">{maxLossError}</span>
             ) : maxLossWarning ? (
-              <p className={styles.warningHint}>
+              <p id="maxloss-warning" className={styles.warningHint}>
                 ⚠ Setting max loss above 80% means most of your committed amount could be lost before the position closes.
               </p>
             ) : (
