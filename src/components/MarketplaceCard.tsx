@@ -206,9 +206,8 @@ function MarketplaceCardComponent({
 
   return (
     <article
-      className={`focus-ring focus-ring-container relative flex flex-col h-full rounded-[14px] p-[18px] bg-[#0A0A0AE5] border border-[rgba(255,255,255,0.08)] ${cardBorderClass} transition-[transform,box-shadow,border-color] duration-180 ease-[ease] overflow-visible hover:-translate-y-1 hover:scale-[1.01] hover:shadow-[0_24px_60px_rgba(0,0,0,0.62),0_0_30px_rgba(255,255,255,0.08),inset_0_0_0_1px_rgba(255,255,255,0.06)]`}
+      className={`focus-ring-container relative flex flex-col h-full rounded-[14px] p-[18px] bg-[#0A0A0AE5] border border-[rgba(255,255,255,0.08)] ${cardBorderClass} transition-[transform,box-shadow,border-color] duration-180 ease-[ease] overflow-visible hover:-translate-y-1 hover:scale-[1.01] hover:shadow-[0_24px_60px_rgba(0,0,0,0.62),0_0_30px_rgba(255,255,255,0.08),inset_0_0_0_1px_rgba(255,255,255,0.06)]`}
       aria-label={`Commitment ${id}`}
-      tabIndex={0}
     >
       <header className="flex items-center justify-between gap-3.5 mb-3.5">
         <div
@@ -288,6 +287,7 @@ function MarketplaceCardComponent({
             </div>
             <div className="grid grid-cols-2 gap-3">
               <button
+                type="button"
                 className="focus-ring h-11 rounded-[14px] inline-flex items-center justify-center gap-2.5 font-[650] tracking-[0.01em] select-none border border-[rgba(255,255,255,0.16)] text-white/90 bg-[rgba(255,255,255,0.04)] transition-[background,border-color] duration-[160ms] ease-[ease] hover:bg-[rgba(255,255,255,0.08)] hover:border-[rgba(255,255,255,0.22)]"
                 onClick={() => setIsModalOpen(true)}
                 aria-label={`View ${id}`}
@@ -314,6 +314,7 @@ function MarketplaceCardComponent({
               Not for sale
             </div>
             <button
+              type="button"
               className="focus-ring h-11 rounded-[14px] inline-flex items-center justify-center gap-2.5 font-[650] tracking-[0.01em] select-none border border-[rgba(255,255,255,0.16)] text-white/90 bg-[rgba(255,255,255,0.04)] transition-[background,border-color] duration-[160ms] ease-[ease] hover:bg-[rgba(255,255,255,0.08)] hover:border-[rgba(255,255,255,0.22)]"
               onClick={() => setIsModalOpen(true)}
               aria-label={`View ${id}`}
