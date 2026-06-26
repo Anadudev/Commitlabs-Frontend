@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { memo, useState } from "react";
 import { CommitmentDetailsModal } from "./modals/CommitmentDetailsModal";
 import Link from "next/link";
 import { TrustBadge, TrustLevel } from "./TrustBadge";
@@ -163,7 +163,7 @@ function DollarSignIcon() {
   );
 }
 
-export function MarketplaceCard({
+function MarketplaceCardComponent({
   id,
   type,
   score,
@@ -361,3 +361,8 @@ export function MarketplaceCard({
     </article>
   );
 }
+
+// Memoized so the marketplace grid only re-renders cards whose props actually
+// changed. Listing objects keep a stable reference across filter/sort/paginate
+// operations, so React.memo's shallow prop comparison skips unchanged cards.
+export const MarketplaceCard = memo(MarketplaceCardComponent);
