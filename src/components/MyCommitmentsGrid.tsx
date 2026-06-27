@@ -3,7 +3,7 @@
 import React from 'react';
 import MyCommitmentCard from './MyCommitmentCard';
 import { Commitment } from '@/types/commitment';
-import Link from 'next/link';
+import { EmptyState } from '@/components/ui/EmptyState';
 
 interface MyCommitmentsGridProps {
   commitments: Commitment[];
@@ -41,12 +41,11 @@ const MyCommitmentsGrid: React.FC<MyCommitmentsGridProps> = ({
           ))}
         </div>
       ) : (
-        <div className="flex flex-col items-center justify-center gap-4 py-[60px] text-[#94A3B8]">
-          <p>No commitments found matching your filters.</p>
-          <Link href="/create" className="font-semibold text-[#0FF0FC] transition-all duration-200 ease-[ease] border-b border-transparent hover:border-[#0FF0FC]">
-            Create your first commitment
-          </Link>
-        </div>
+        <EmptyState
+          title="No commitments found"
+          description="No commitments found matching your filters."
+          cta={{ label: 'Create your first commitment', href: '/create' }}
+        />
       )}
     </div>
   );

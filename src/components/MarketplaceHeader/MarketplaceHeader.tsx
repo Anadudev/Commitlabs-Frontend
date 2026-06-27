@@ -10,7 +10,8 @@ import React, {
 import Link from 'next/link'
 import Image from 'next/image'
 import { AlertCircle, ArrowLeft, Loader2, Search } from 'lucide-react'
-import styles from './MarketplaceHeader.module.css'
+import styles from './MarketplaceHeader.module.css';
+import { apiGet, apiFetch } from '@/lib/apiClient';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -79,6 +80,11 @@ export function MarketplaceHeader({
   backHref = '/',
   createHref = '/create',
   searchQuery: controlledQuery,
+}: MarketplaceHeaderProps) {
+  const [stats, setStats] = useState<MarketplaceStats | null>(null);
+  const [statsError, setStatsError] = useState<string | null>(null);
+  const [sortValue, setSortValue] = useState<SortValue>('popular');
+  const [query, setQuery] = useState(controlledQuery ?? '');
   ownerAddress,
   onResultSelect,
 }: MarketplaceHeaderProps) {
@@ -105,10 +111,8 @@ export function MarketplaceHeader({
     let cancelled = false
     const fetchStats = async () => {
       try {
-        const res = await fetch('/api/marketplace/stats')
-        if (!res.ok) throw new Error(`Error ${res.status}`)
-        const data = await res.json()
-        if (!cancelled) setStats(data)
+        const data = await apiGet<MarketplaceStats>('/api/marketplace/stats');
+        if (!cancelled) setStats(data);
       } catch (e) {
         if (!cancelled) setStatsError((e as Error).message)
       }
@@ -146,24 +150,20 @@ export function MarketplaceHeader({
         asset: trimmed,
       })
 
-      fetch(`/api/commitments/search?${params}`, { signal: controller.signal })
-        .then((res) => {
-          if (!res.ok) throw new Error(`Search failed: HTTP ${res.status}`)
-          return res.json() as Promise<{ data?: CommitmentSearchResult[] }>
-        })
-        .then((json) => {
-          setResults(json.data ?? [])
-          setIsDropdownOpen(true)
-          setActiveIndex(-1)
-          setIsSearching(false)
-        })
-        .catch((err: Error) => {
-          if (err.name !== 'AbortError') {
-            setSearchError(err.message)
-            setIsDropdownOpen(false)
-            setIsSearching(false)
-          }
-        })
+      apiFetch<{ data?: CommitmentSearchResult[] }>(`/api/commitments/search?${params}`, { signal: controller.signal })
+          .then((data) => {
+            setResults(data.data ?? []);
+            setIsDropdownOpen(true);
+            setActiveIndex(-1);
+            setIsSearching(false);
+          })
+          .catch((err: any) => {
+            if (err.name !== 'AbortError') {
+              setSearchError(err.message || String(err));
+              setIsDropdownOpen(false);
+              setIsSearching(false);
+            }
+          })
 
       onSearchChange?.(trimmed)
     }, searchDebounceMs)

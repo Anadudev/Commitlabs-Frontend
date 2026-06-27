@@ -8,6 +8,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import CommitmentHealthMetrics from '../CommitmentHealthMetrics';
 
 const defaultProps = {
+  commitmentId: 'commitment-1',
   complianceData: [{ date: '2026-01', complianceScore: 85 }],
   drawdownData: [{ date: '2026-01', drawdownPercent: 0.15 }],
   valueHistoryData: [{ date: '2026-01', currentValue: 1000, initialAmount: 900 }],

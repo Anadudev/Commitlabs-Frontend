@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import { apiGet } from '@/lib/apiClient';
 import { CommitmentDetailOverview } from "@/components/CommitmentDetailOverview";
 import { AtRiskCommitments } from "@/components/dashboard/AtRiskCommitments";
 import { Commitment } from "@/lib/types/domain";
@@ -11,10 +12,8 @@ export default function CommitmentOverviewPage() {
   useEffect(() => {
     async function loadCommitments() {
       try {
-        const res = await fetch("/api/commitments");
-        if (res.ok) {
-          const data = await res.json();
-          // Assuming API returns { data: Commitment[] } based on standard patterns
+        const data = await apiGet<{ data: Commitment[] }>('/api/commitments');
+        setCommitments(data.data);
           if (data && Array.isArray(data.data)) {
             setCommitments(data.data);
           } else if (Array.isArray(data)) {

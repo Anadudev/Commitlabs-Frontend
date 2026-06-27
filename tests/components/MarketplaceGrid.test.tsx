@@ -47,10 +47,7 @@ describe('MarketplaceGrid', () => {
     expect(within(grid).getByRole('article', { name: /commitment 8/i })).toBeInTheDocument();
     expect(screen.getByText('#CMT-007')).toBeInTheDocument();
     expect(screen.getByText('$10,000')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /trade 7/i })).toHaveAttribute(
-      'href',
-      '/marketplace/trade?id=7',
-    );
+    expect(screen.getByRole('button', { name: /trade 7/i })).toBeInTheDocument();
     expect(screen.getByText('Not for sale')).toBeInTheDocument();
   });
 

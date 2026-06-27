@@ -4,6 +4,7 @@ import React, { useCallback, useRef, useState } from 'react';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import CommitmentHealthMetrics from '@/components/dashboard/CommitmentHealthMetrics';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import CommitmentDetailAllocationConstraints from '@/components/CommitmentDetailAllocationConstraints';
 import { CommitmentDetailNftSection } from '@/components/dashboard/CommitmentDetailNftSection';
 import { CommitmentDetailParameters } from '@/components/CommitmentDetailParameters/CommitmentDetailParameters';
@@ -228,14 +229,17 @@ export default function CommitmentDetailPage({
 
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
                         <div className="lg:col-span-2 space-y-8">
-                            <CommitmentHealthMetrics 
-                                complianceData={MOCK_COMPLIANCE_DATA}
-                                drawdownData={MOCK_DRAWDOWN_DATA}
-                                valueHistoryData={MOCK_VALUE_HISTORY_DATA}
-                                feeGenerationData={MOCK_FEE_GENERATION_DATA}
-                                thresholdPercent={0.5}
-                                volatilityPercent={35}
-                            />
+                            <ErrorBoundary>
+                                <CommitmentHealthMetrics
+                                    commitmentId={params.id}
+                                    complianceData={MOCK_COMPLIANCE_DATA}
+                                    drawdownData={MOCK_DRAWDOWN_DATA}
+                                    valueHistoryData={MOCK_VALUE_HISTORY_DATA}
+                                    feeGenerationData={MOCK_FEE_GENERATION_DATA}
+                                    thresholdPercent={0.5}
+                                    volatilityPercent={35}
+                                />
+                            </ErrorBoundary>
 
                             <div ref={attestationsRef} id="attestations-section">
                                 <RecentAttestationsPanel

@@ -50,6 +50,10 @@ The root `src/app/layout.tsx` defines baseline metadata that applies to every pa
 Route-level metadata **overrides** the root `title` and `description` for that route,
 but inherits any fields not explicitly set (e.g. `robots`, `verification`).
 
+> **Note:** The `google-site-verification` tag is driven by the `NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION`
+> environment variable. If this variable is unset or empty, the verification tag is entirely omitted
+> from the DOM.
+
 ### Dynamic routes
 
 For dynamic routes like `/commitments/[id]`, use `generateMetadata`. Because the page itself

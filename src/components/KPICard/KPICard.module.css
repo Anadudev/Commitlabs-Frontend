@@ -132,7 +132,7 @@
 }
 
 .tooltip {
-  color: #64748b;
+  color: #808b9e;
   font-size: 0.75rem;
   cursor: help;
   margin-left: auto;
@@ -217,7 +217,7 @@
    --------------------------------------------------------------------------- */
 .description {
   font-size: 0.75rem;
-  color: #64748b;
+  color: #808b9e;
   margin: 0;
   line-height: 1.4;
 }
@@ -260,7 +260,7 @@
 
 .loadingMessage {
   font-size: 0.75rem;
-  color: #64748b;
+  color: #808b9e;
 }
 
 .skeleton {
@@ -361,7 +361,7 @@
 
 .emptyMessage {
   font-size: 0.875rem;
-  color: #64748b;
+  color: #808b9e;
   font-style: italic;
 }
 

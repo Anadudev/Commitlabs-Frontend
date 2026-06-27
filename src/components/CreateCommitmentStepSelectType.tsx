@@ -117,25 +117,6 @@ export default function CreateCommitmentStepSelectType({
           </p>
         </div>
 
-        <div
-          id="commitment-type-container"
-          className={styles.cardsContainer}
-          role="radiogroup"
-          aria-label="Commitment type"
-          tabIndex={-1}
-          style={{ outline: 'none' }}
-        >
-          {commitmentTypes.map((type) => {
-            const Icon = type.icon;
-            const isSelected = selectedType === type.id;
-
-            return (
-              <div
-                key={type.id}
-                onClick={() => onSelectType(type.id)}
-                role="radio"
-                aria-checked={isSelected}
-                tabIndex={0}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault();

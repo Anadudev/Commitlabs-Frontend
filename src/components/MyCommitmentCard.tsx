@@ -108,7 +108,7 @@ const MyCommitmentCard: React.FC<MyCommitmentCardProps> = ({
         <div className="flex items-baseline gap-2 text-[32px] font-bold font-roboto">
           {amount}{" "}
           <span
-            className="text-[16px] font-medium text-[#666]"
+            className="text-[16px] font-medium text-[#8892a0]"
             style={{ fontFamily: "'Inter', sans-serif" }}
           >
             {asset}

@@ -3,6 +3,7 @@
 import React, { useState, useRef, useEffect } from 'react'
 import WizardStepper from './WizardStepper'
 import styles from './CreateCommitmentStepConfigure.module.css'
+import GlossaryTerm from './GlossaryTerm'
 
 interface ServerFieldErrors {
   amount?: string
@@ -273,7 +274,7 @@ export default function CreateCommitmentStepConfigure({
           {/* Max Loss — promoted out of Advanced */}
           <div className={styles.formGroup}>
             <label htmlFor="maxLoss" className={styles.label}>
-              Maximum Acceptable Loss (%)
+              <GlossaryTerm termKey="max loss threshold">Maximum Acceptable Loss (%)</GlossaryTerm>
               <span className={styles.required}>*</span>
             </label>
             <div className={styles.sliderInputWrapper}>
@@ -430,7 +431,7 @@ export default function CreateCommitmentStepConfigure({
           {/* Derived Values */}
           <div className={styles.derivedSection} data-testid="derived-section">
             <div className={styles.derivedRow}>
-              <span className={styles.derivedLabel}>Early Exit Penalty</span>
+              <span className={styles.derivedLabel}><GlossaryTerm termKey="early exit">Early Exit Penalty</GlossaryTerm></span>
               <span className={styles.derivedValue}>{earlyExitPenalty}</span>
             </div>
             <div className={styles.derivedRow}>
