@@ -21,6 +21,7 @@ This project includes comprehensive, user-friendly error pages for various error
 
 ---
 
+
 ### 2. **500 Server Error Page** (`/error`)
 - **File**: `src/app/error.tsx`
 - **Styling**: `src/app/error.module.css`

@@ -1,8 +1,9 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=Roboto+Mono:wght@400;500;600&display=swap");
+
 @import "tailwindcss";
 
 @theme {
-  --font-roboto: "Roboto Mono", sans-serif;
+  /* Tailwind font uses the same CSS variable as next/font/google (self-hosted) */
+  --font-roboto: var(--font-roboto);
 }
 
 :root {
@@ -33,6 +34,33 @@
 
   /* Focus Ring */
   --focus-ring-color: var(--accent-teal);
+
+  /* ==========================================================================
+     Design Tokens – Colors (WCAG AA on #0a0a0a surface)
+     ========================================================================== */
+
+  /* Surface */
+  --surface-base: #0a0a0a;
+  --surface-card: #111111;
+  --surface-tooltip: #1a1a1a;
+
+  /* Text – measured against --surface-base (#0a0a0a) */
+  --text-primary: #ffffff;           /* 19.5:1 */
+  --text-secondary: #99a1af;         /*  7.38:1 */
+  --text-tertiary: #8892a0;          /*  6.29:1 – replaces #666 (3.45:1 FAIL) */
+  --text-muted: #808b9e;             /*  5.76:1 – replaces #64748b (4.16:1 FAIL) */
+
+  /* Status */
+  --status-positive: #05DF72;        /* 11.0:1 */
+  --status-warning: #ff8904;         /*  7.92:1 */
+  --status-danger: #f87171;          /*  6.06:1 – replaces #ef4444 (5.26:1 marginal) */
+  --status-info: #51a2ff;            /*  8.11:1 */
+
+  /* Accent */
+  --accent-cyan: #0ff0fc;
+  --accent-green: #4ADE80;
+
+  --focus-ring-color: var(--accent-cyan);
   --focus-ring-width: 2px;
   --focus-ring-offset: 2px;
   --focus-ring-shadow: 0 0 0 4px rgba(var(--accent-teal-rgb), 0.22);
@@ -159,13 +187,18 @@ button {
         }
 
         /* Skeleton loading animations with reduced motion support */
+        :root {
+          --shimmer-duration: 2s;
+          --shimmer-easing: cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
         @keyframes shimmer {
-          0% {
-            transform: translateX(-100%);
-          }
-          100% {
-            transform: translateX(100%);
-          }
+          0% { transform: translateX(-100%); }
+          100% { transform: translateX(100%); }
+        }
+
+        .animate-shimmer {
+          animation: shimmer var(--shimmer-duration) infinite var(--shimmer-easing);
         }
 
         @media (prefers-reduced-motion: reduce) {

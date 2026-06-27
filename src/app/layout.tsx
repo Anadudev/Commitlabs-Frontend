@@ -2,6 +2,22 @@ import type { Metadata } from 'next'
 import './globals.css'
 import ScrollToTopButton from "@/components/landing-page/ui/ScrollToTop"
 import { ToastProvider } from "@/components/toast/ToastProvider"
+import { CommandPaletteProvider } from "@/components/CommandPalette"
+import { NetworkMismatchBanner } from "@/components/wallet/NetworkMismatchBanner"
+import { Inter, Roboto_Mono } from 'next/font/google'
+
+const inter = Inter({
+  subsets: ['latin'],
+  display: 'swap',
+  variable: '--font-inter',
+})
+
+const robotoMono = Roboto_Mono({
+  subsets: ['latin'],
+  weight: ['400', '500', '600'],
+  display: 'swap',
+  variable: '--font-roboto',
+})
 
 export const metadata: Metadata = {
   title: 'CommitLabs - Liquidity as a Commitment',
@@ -43,9 +59,11 @@ export const metadata: Metadata = {
       'max-snippet': -1,
     },
   },
-  verification: {
-    google: 'your-google-site-verification-code',
-  },
+  ...(process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION ? {
+    verification: {
+      google: process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION,
+    },
+  } : {}),
 }
 
 export default function RootLayout({
@@ -54,7 +72,10 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en" className="scroll-smooth">
+    <html
+      lang="en"
+      className={["scroll-smooth", inter.variable, robotoMono.variable].join(' ')}
+    >
       <head>
         <script
           type="application/ld+json"
@@ -77,10 +98,13 @@ export default function RootLayout({
       <body>
         <a href="#main-content" className="skip-link">Skip to main content</a>
         <ToastProvider>
+          <NetworkMismatchBanner />
           {children}
           <ScrollToTopButton />
+          <CommandPaletteProvider />
         </ToastProvider>
       </body>
     </html>
   )
 }
+
