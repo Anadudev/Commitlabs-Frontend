@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import WizardStepper from './WizardStepper'
 import styles from './CreateCommitmentStepConfigure.module.css'
 
@@ -21,6 +21,7 @@ interface CreateCommitmentStepConfigureProps {
   onNext: () => void
   amountError?: string
   maxLossWarning?: boolean
+  initialFocusField?: string
 }
 
 // Per-type constraints surfaced as copy
@@ -44,7 +45,18 @@ export default function CreateCommitmentStepConfigure({
   onNext,
   amountError,
   maxLossWarning = false,
+  initialFocusField,
 }: CreateCommitmentStepConfigureProps) {
+  useEffect(() => {
+    if (initialFocusField) {
+      const element = document.getElementById(initialFocusField);
+      if (element) {
+        element.focus();
+        element.scrollIntoView({ block: 'center' });
+      }
+    }
+  }, [initialFocusField]);
+
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [slippageTolerance, setSlippageTolerance] = useState(1)
   const [liquidationBuffer, setLiquidationBuffer] = useState(5)
