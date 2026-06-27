@@ -284,6 +284,7 @@ export default function CreateCommitment() {
           estimatedFees={estimatedFees}
           isValid={isStep2Valid}
           ownerAddress={ownerAddress}
+          commitmentType={commitmentType}
           onChangeAmount={setAmount}
           onChangeAsset={setAsset}
           onChangeDuration={setDurationDays}
