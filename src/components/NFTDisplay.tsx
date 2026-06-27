@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useCallback } from 'react';
+import Image from 'next/image';
 import { RefreshCw, Copy, AlertCircle, Loader2 } from 'lucide-react';
 import { useToast } from './toast/ToastProvider';
 import { useNftMetadata } from '@/hooks/useNftMetadata';
@@ -74,10 +75,11 @@ export default function NFTDisplay({
           </div>
         )}
         {(!imageError && imageUrl) ? (
-          <img
+          <Image
             src={imageUrl}
             alt={`NFT ${tokenId}`}
-            className="w-full h-full object-cover"
+            fill
+            className="object-cover"
             onError={() => setImageError(true)}
           />
         ) : (

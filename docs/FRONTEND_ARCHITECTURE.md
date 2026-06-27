@@ -89,6 +89,13 @@ Fonts are loaded via `next/font/google` in `src/app/layout.tsx` to avoid render-
 - `Inter` and `Roboto Mono` are self-hosted and configured with `display: swap`.
 - Tailwind’s font theme uses the existing `--font-roboto` CSS variable.
 
+## Image Conventions
+
+- Raster assets (PNG, JPG, WebP) should always be rendered using `next/image` rather than raw HTML `<img>` tags or CSS `background-image` attributes.
+- Use explicit `width` and `height` properties or the `fill` layout with an explicit container size to prevent Cumulative Layout Shift (CLS).
+- Always provide descriptive `alt` text for accessibility, or an empty string `alt=""` for purely decorative images.
+- Remote images (e.g., from IPFS gateways) are configured under `images.remotePatterns` in `next.config.js`.
+
 ## Wallet & Auth State Flow
 
 

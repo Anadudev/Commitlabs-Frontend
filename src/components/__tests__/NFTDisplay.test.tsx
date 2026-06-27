@@ -150,4 +150,12 @@ describe('NFTDisplay', () => {
     render(<NFTDisplay tokenId="image-test" imageUrl="https://invalid-image-url.invalid" />);
     expect(screen.getByText('Commitment NFT')).toBeInTheDocument();
   });
+
+  it('renders image with alt text and next/image properties', () => {
+    render(<NFTDisplay tokenId="image-test-2" imageUrl="https://example.com/image.png" />);
+    const img = screen.getByAltText('NFT image-test-2');
+    expect(img).toBeInTheDocument();
+    expect(img).toHaveAttribute('src');
+    expect(img).toHaveClass('object-cover');
+  });
 });
