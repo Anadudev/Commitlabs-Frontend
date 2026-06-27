@@ -230,7 +230,8 @@ export default function CommitmentDetailPage({
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
                         <div className="lg:col-span-2 space-y-8">
                             <ErrorBoundary>
-                                <CommitmentHealthMetrics 
+                                <CommitmentHealthMetrics
+                                    commitmentId={params.id}
                                     complianceData={MOCK_COMPLIANCE_DATA}
                                     drawdownData={MOCK_DRAWDOWN_DATA}
                                     valueHistoryData={MOCK_VALUE_HISTORY_DATA}

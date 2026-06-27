@@ -7,6 +7,19 @@ import '@testing-library/jest-dom/vitest';
 
 import CommitmentHealthMetrics from './CommitmentHealthMetrics';
 
+vi.mock('next/dynamic', () => ({
+    default: (loader: () => Promise<{ default: React.ComponentType<Record<string, unknown>> }>) => {
+        const LazyComponent = React.lazy(loader);
+        return function DynamicComponent(props: Record<string, unknown>) {
+            return (
+                <React.Suspense fallback={null}>
+                    <LazyComponent {...props} />
+                </React.Suspense>
+            );
+        };
+    },
+}));
+
 // ---------------------------------------------------------------------------
 // Mock the four child charts.
 //
@@ -42,6 +55,14 @@ vi.mock('./HealthMetricsComplianceChart', () => ({
     )),
 }));
 
+vi.mock('./ChartExportMenu', () => ({
+    ChartExportMenu: vi.fn(({ tab, disabled }: { tab: string; disabled?: boolean }) => (
+        <div data-testid={`export-menu-${tab}`} data-disabled={String(Boolean(disabled))}>
+            Export
+        </div>
+    )),
+}));
+
 // Pull in the mocked modules so we can assert on call args directly too.
 import { HealthMetricsValueHistoryChart } from './HealthMetricsValueHistoryChart';
 import { HealthMetricsDrawdownChart } from './HealthMetricsDrawdownChart';
@@ -73,6 +94,7 @@ const complianceData = [
 ];
 
 const baseProps = {
+    commitmentId: 'commitment-1',
     valueHistoryData,
     drawdownData,
     feeGenerationData,
@@ -402,5 +424,17 @@ describe('CommitmentHealthMetrics - static content', () => {
         expect(
             screen.getByRole('heading', { name: 'Health Metrics' }),
         ).toBeInTheDocument();
+    });
+
+    it('renders export menu for the active tab', () => {
+        renderComponent();
+
+        expect(screen.getByTestId('export-menu-value')).toBeInTheDocument();
+    });
+
+    it('disables export menu while loading', () => {
+        renderComponent({ isLoading: true });
+
+        expect(screen.getByTestId('export-menu-value')).toHaveAttribute('data-disabled', 'true');
     });
 });
