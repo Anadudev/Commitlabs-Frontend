@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   ErrorBodySchema,
   OkBodySchema,
@@ -13,6 +13,37 @@ import {
   AttestationSummarySchema,
 } from '@/lib/schemas/apiContracts';
 import { z } from 'zod';
+
+vi.mock("ioredis", () => ({ default: class {} }));
+vi.mock("@/lib/backend/cache/factory", () => ({
+  cache: {
+    get: vi.fn(async () => null),
+    set: vi.fn(async () => {}),
+    delete: vi.fn(async () => {}),
+  },
+}));
+vi.mock("@/lib/backend/counters/provider", () => ({
+  getCountersAdapter: () => ({
+    incrementSuccessfulActions: vi.fn(),
+    incrementChainFailures: vi.fn(),
+  }),
+}));
+vi.mock("@/lib/backend/config", () => ({
+  getBackendConfig: () => ({
+    sorobanRpcUrl: "https://example.invalid",
+    networkPassphrase: "TEST",
+    contractAddresses: { commitmentCore: "CORE", attestationEngine: "ENGINE" },
+  }),
+}));
+vi.mock("@/lib/backend/logger", () => ({
+  logInfo: vi.fn(),
+  logWarn: vi.fn(),
+  logError: vi.fn(),
+}));
+
+import { cache } from '@/lib/backend/cache/factory';
+import { settleCommitmentOnChain } from '@/lib/backend/services/contracts';
+import { BackendError } from '@/lib/backend/errors';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -659,6 +690,56 @@ describe('Compliance Score Scaling Round-Trip', () => {
         // Check that the round-trip is exact (no precision loss)
         expect(restoredScore).toBe(score);
       });
+    });
+  });
+});
+
+describe('settleCommitmentOnChain maturity gate', () => {
+  it('throws NOT_MATURED error when active commitment has missing expiresAt', async () => {
+    const mockedCache = vi.mocked(cache);
+    mockedCache.get.mockResolvedValueOnce({
+      id: 'cm_123',
+      ownerAddress: 'GABC',
+      asset: 'USDC',
+      amount: '1000',
+      status: 'ACTIVE',
+      complianceScore: 100,
+      currentValue: '1000',
+      feeEarned: '0',
+      violationCount: 0,
+      expiresAt: undefined, // missing expiresAt
+    } as any);
+
+    await expect(
+      settleCommitmentOnChain({ commitmentId: 'cm_123' })
+    ).rejects.toMatchObject({
+      code: 'NOT_MATURED',
+      message: 'Commitment maturity information is missing. Cannot settle.',
+      status: 400,
+    });
+  });
+
+  it('throws NOT_MATURED error when active commitment has expiresAt in the future', async () => {
+    const mockedCache = vi.mocked(cache);
+    mockedCache.get.mockResolvedValueOnce({
+      id: 'cm_123',
+      ownerAddress: 'GABC',
+      asset: 'USDC',
+      amount: '1000',
+      status: 'ACTIVE',
+      complianceScore: 100,
+      currentValue: '1000',
+      feeEarned: '0',
+      violationCount: 0,
+      expiresAt: new Date(Date.now() + 3600 * 1000).toISOString(), // 1 hour in future
+    } as any);
+
+    await expect(
+      settleCommitmentOnChain({ commitmentId: 'cm_123' })
+    ).rejects.toMatchObject({
+      code: 'NOT_MATURED',
+      message: 'Commitment has not matured yet and cannot be settled.',
+      status: 400,
     });
   });
 });

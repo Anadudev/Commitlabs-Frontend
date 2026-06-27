@@ -4,7 +4,9 @@ This document details the architectural design of the CommitLabs Frontend applic
 
 ## 🏗 High-Level Architecture
 
+
 The application follows a standard **Next.js App Router** architecture, leveraging Server Components for static rendering and Client Components for interactivity.
+
 
 ### Component Diagram
 
@@ -19,6 +21,7 @@ graph TD
         Hooks[React Hooks]
         Context[React Context]
     end
+
     
     subgraph "Integration Layer"
         ContractsService[Contracts Service (src/lib/backend/services/contracts.ts)]
@@ -30,6 +33,7 @@ graph TD
         Stellar[Stellar Network]
         Contracts[Soroban Smart Contracts]
     end
+    
     
     User -->|Interacts| Page
     Page -->|Renders| Comp

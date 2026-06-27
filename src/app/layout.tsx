@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 import './globals.css'
 import ScrollToTopButton from "@/components/landing-page/ui/ScrollToTop"
-import { WalletProvider } from '@/components/auth/WalletProvider'
+import { ToastProvider } from "@/components/toast/ToastProvider"
 
 export const metadata: Metadata = {
   title: 'CommitLabs - Liquidity as a Commitment',
@@ -76,8 +76,10 @@ export default function RootLayout({
       </head>
       <body>
         <a href="#main-content" className="skip-link">Skip to main content</a>
-        <WalletProvider>{children}</WalletProvider>
-        <ScrollToTopButton />
+        <ToastProvider>
+          {children}
+          <ScrollToTopButton />
+        </ToastProvider>
       </body>
     </html>
   )

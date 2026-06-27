@@ -1,9 +1,15 @@
 import { defineConfig } from 'vitest/config';
+import react from '@vitejs/plugin-react';
 import path from 'path';
 
 export default defineConfig({
+  oxc: false,
+  esbuild: {
+    jsx: 'automatic',
+  },
   test: {
     globals: true,
+    setupFiles: ['./tests/setup/vitest.setup.ts'],
     include: ['**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'],
     coverage: {
       all: true,
@@ -35,6 +41,9 @@ export default defineConfig({
         statements: 19,
       },
     },
+  },
+  esbuild: {
+    jsx: 'automatic',
   },
   resolve: {
     alias: {

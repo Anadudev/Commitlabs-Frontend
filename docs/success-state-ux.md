@@ -98,6 +98,26 @@ The user needs closure, clarity on what changed financially, and a path back to 
 - Outcome callout explaining that no further actions are required
 - Links to related records, receipts, or portfolio pages
 
+### Early Exit Penalty Preview
+
+#### User Need
+The user needs complete financial clarity regarding the penalty deductions, interest forfeitures, and net refund amount before making an irreversible on-chain exit.
+
+#### Modal Content
+- Heading: `Early Exit Warning`
+- Body: `This action is irreversible and carries penalties.`
+- Metadata (displayed in a semantic table):
+  - Commitment ID
+  - Original committed amount (Before Early Exit)
+  - Penalty rate (dynamic percentage derived from protocol constants)
+  - Penalty deduction amount
+  - Net receive / refund amount (After Early Exit)
+- Primary action: `Confirm Early Exit`
+- Secondary action: `Cancel`
+- Verification Flow:
+  - User must acknowledge consequences via checkbox before proceeding.
+  - User must input the exact commitment ID string to prevent accidental triggers.
+
 ### Listing Published
 
 #### User Need

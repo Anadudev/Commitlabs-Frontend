@@ -1,6 +1,6 @@
-'use client';
+"use client";
 
-import { useState } from "react";
+import { memo, useState } from "react";
 import { CommitmentDetailsModal } from "./modals/CommitmentDetailsModal";
 import Link from "next/link";
 import { TrustBadge, TrustLevel } from "./TrustBadge";
@@ -163,7 +163,7 @@ function DollarSignIcon() {
   );
 }
 
-export function MarketplaceCard({
+function MarketplaceCardComponent({
   id,
   type,
   score,
@@ -184,31 +184,30 @@ export function MarketplaceCard({
     type === "Safe"
       ? "border-[#00C95066]"
       : type === "Balanced"
-      ? "border-[#2B7FFF66]"
-      : "border-[#FF690066]";
+        ? "border-[#2B7FFF66]"
+        : "border-[#FF690066]";
 
   const scoreColorClass =
     type === "Safe"
       ? "text-[#00C950]/95"
       : type === "Balanced"
-      ? "text-[#51A2FF]/95"
-      : "text-[#FF8904]/95";
+        ? "text-[#51A2FF]/95"
+        : "text-[#FF8904]/95";
 
   const badgeClass =
     type === "Safe"
       ? "bg-[#0f2a1d] text-[#00C950]"
       : type === "Balanced"
-      ? "bg-[#122238] text-[#51A2FF]"
-      : "bg-[#2b1c10] text-[#FF8904]";
+        ? "bg-[#122238] text-[#51A2FF]"
+        : "bg-[#2b1c10] text-[#FF8904]";
 
   const resolvedTradeHref =
     tradeHref ?? `/marketplace/trade?id=${encodeURIComponent(id)}`;
 
   return (
     <article
-      className={`focus-ring focus-ring-container relative flex flex-col h-full rounded-[14px] p-[18px] bg-[#0A0A0AE5] border border-[rgba(255,255,255,0.08)] ${cardBorderClass} transition-[transform,box-shadow,border-color] duration-180 ease-[ease] overflow-visible hover:-translate-y-1 hover:scale-[1.01] hover:shadow-[0_24px_60px_rgba(0,0,0,0.62),0_0_30px_rgba(255,255,255,0.08),inset_0_0_0_1px_rgba(255,255,255,0.06)]`}
+      className={`focus-ring-container relative flex flex-col h-full rounded-[14px] p-[18px] bg-[#0A0A0AE5] border border-[rgba(255,255,255,0.08)] ${cardBorderClass} transition-[transform,box-shadow,border-color] duration-180 ease-[ease] overflow-visible hover:-translate-y-1 hover:scale-[1.01] hover:shadow-[0_24px_60px_rgba(0,0,0,0.62),0_0_30px_rgba(255,255,255,0.08),inset_0_0_0_1px_rgba(255,255,255,0.06)]`}
       aria-label={`Commitment ${id}`}
-      tabIndex={0}
     >
       <header className="flex items-center justify-between gap-3.5 mb-3.5">
         <div
@@ -265,7 +264,10 @@ export function MarketplaceCard({
               <span className="text-[15px] font-mono font-semibold text-white/80">
                 {truncateAddress(owner)}
               </span>
-              <TrustBadge level={trustLevel ?? 'unverified'} showTooltip={false} />
+              <TrustBadge
+                level={trustLevel ?? "unverified"}
+                showTooltip={false}
+              />
             </dd>
           </div>
         </dl>
@@ -285,6 +287,7 @@ export function MarketplaceCard({
             </div>
             <div className="grid grid-cols-2 gap-3">
               <button
+                type="button"
                 className="focus-ring h-11 rounded-[14px] inline-flex items-center justify-center gap-2.5 font-[650] tracking-[0.01em] select-none border border-[rgba(255,255,255,0.16)] text-white/90 bg-[rgba(255,255,255,0.04)] transition-[background,border-color] duration-[160ms] ease-[ease] hover:bg-[rgba(255,255,255,0.08)] hover:border-[rgba(255,255,255,0.22)]"
                 onClick={() => setIsModalOpen(true)}
                 aria-label={`View ${id}`}
@@ -311,6 +314,7 @@ export function MarketplaceCard({
               Not for sale
             </div>
             <button
+              type="button"
               className="focus-ring h-11 rounded-[14px] inline-flex items-center justify-center gap-2.5 font-[650] tracking-[0.01em] select-none border border-[rgba(255,255,255,0.16)] text-white/90 bg-[rgba(255,255,255,0.04)] transition-[background,border-color] duration-[160ms] ease-[ease] hover:bg-[rgba(255,255,255,0.08)] hover:border-[rgba(255,255,255,0.22)]"
               onClick={() => setIsModalOpen(true)}
               aria-label={`View ${id}`}
@@ -322,10 +326,10 @@ export function MarketplaceCard({
         )}
       </footer>
 
-
       <CommitmentDetailsModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
+        commitmentId={id}
         typeLabel={`${type} Commitment`}
         typeVariant={type.toLowerCase() as "safe" | "balanced" | "aggressive"}
         currentPrice={price}
@@ -355,7 +359,11 @@ export function MarketplaceCard({
         ]}
         TypeIcon={TypeIcon}
       />
-
     </article>
   );
 }
+
+// Memoized so the marketplace grid only re-renders cards whose props actually
+// changed. Listing objects keep a stable reference across filter/sort/paginate
+// operations, so React.memo's shallow prop comparison skips unchanged cards.
+export const MarketplaceCard = memo(MarketplaceCardComponent);

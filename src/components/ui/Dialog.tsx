@@ -1,131 +1,174 @@
-'use client'
+'use client';
 
-import React, { useEffect, useId, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
+import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
-const FOCUSABLE_SELECTOR = [
-  'button:not([disabled])',
-  '[href]',
-  'input:not([disabled])',
-  'select:not([disabled])',
-  'textarea:not([disabled])',
-  '[tabindex]:not([tabindex="-1"])',
-].join(', ')
-
-interface DialogProps {
-  open: boolean
-  title: string
-  description?: string
-  onClose?: () => void
-  initialFocusRef?: React.RefObject<HTMLElement | null>
-  children: React.ReactNode
+export interface DialogProps {
+  isOpen: boolean;
+  onClose: () => void;
+  labelledById?: string;
+  describedById?: string;
+  closeOnEscape?: boolean;
+  initialFocusRef?: React.RefObject<HTMLElement | null>;
+  children: React.ReactNode;
+  className?: string;
+  backdropClassName?: string;
 }
 
-export default function Dialog({
-  open,
-  title,
-  description,
+export function Dialog({
+  isOpen,
   onClose,
+  labelledById,
+  describedById,
+  closeOnEscape = true,
   initialFocusRef,
   children,
+  className = '',
+  backdropClassName = 'bg-black/80 p-4 backdrop-blur-md',
 }: DialogProps) {
-  const [mounted, setMounted] = useState(false)
-  const containerRef = useRef<HTMLDivElement>(null)
-  const titleId = useId()
-  const descriptionId = useId()
-  const previouslyFocusedRef = useRef<HTMLElement | null>(null)
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+  const [mounted, setMounted] = useState(false);
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
 
   useEffect(() => {
-    setMounted(true)
-    return () => setMounted(false)
-  }, [])
+    setMounted(true);
+    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    setPrefersReducedMotion(mediaQuery.matches);
+    
+    const listener = (e: MediaQueryListEvent) => setPrefersReducedMotion(e.matches);
+    mediaQuery.addEventListener('change', listener);
+    return () => {
+      setMounted(false);
+      mediaQuery.removeEventListener('change', listener);
+    };
+  }, []);
 
   useEffect(() => {
-    if (!open) {
-      return
-    }
+    if (!isOpen) return;
 
-    previouslyFocusedRef.current = document.activeElement as HTMLElement | null
-
-    const focusTarget = window.setTimeout(() => {
-      initialFocusRef?.current?.focus()
-    }, 0)
+    // Capture previous focus
+    previousFocusRef.current = document.activeElement as HTMLElement | null;
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        onClose?.()
-        return
+        if (closeOnEscape) {
+          event.preventDefault();
+          onClose();
+        }
+        return;
       }
 
-      if (event.key !== 'Tab' || !containerRef.current) {
-        return
+      if (event.key === 'Tab' && dialogRef.current) {
+        const focusableElements = dialogRef.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        );
+
+        if (focusableElements.length === 0) {
+          event.preventDefault();
+          return;
+        }
+
+        const firstElement = focusableElements[0];
+        const lastElement = focusableElements[focusableElements.length - 1];
+
+        if (event.shiftKey && document.activeElement === firstElement) {
+          event.preventDefault();
+          lastElement.focus();
+        } else if (!event.shiftKey && document.activeElement === lastElement) {
+          event.preventDefault();
+          firstElement.focus();
+        }
       }
+    };
 
-      const focusableElements = Array.from(
-        containerRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)
-      )
-
-      if (focusableElements.length === 0) {
-        return
+    const focusTimer = window.setTimeout(() => {
+      if (initialFocusRef?.current) {
+        initialFocusRef.current.focus();
+      } else if (dialogRef.current) {
+        const focusableElements = dialogRef.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        );
+        if (focusableElements.length > 0) {
+          focusableElements[0].focus();
+        } else {
+          dialogRef.current.focus();
+        }
       }
+    }, 100);
 
-      const firstElement = focusableElements[0]
-      const lastElement = focusableElements[focusableElements.length - 1]
-
-      if (event.shiftKey && document.activeElement === firstElement) {
-        event.preventDefault()
-        lastElement.focus()
-        return
-      }
-
-      if (!event.shiftKey && document.activeElement === lastElement) {
-        event.preventDefault()
-        firstElement.focus()
-      }
-    }
-
-    document.addEventListener('keydown', handleKeyDown)
-    document.body.style.overflow = 'hidden'
+    document.addEventListener('keydown', handleKeyDown);
+    
+    // Scroll lock and inert implementation
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    
+    // Make sibling root elements inert for accessibility
+    const rootElements = Array.from(document.body.children).filter(
+      (child) => 
+        child.tagName !== 'SCRIPT' && 
+        child.tagName !== 'NOSCRIPT' && 
+        !child.hasAttribute('data-dialog-portal')
+    );
+    
+    rootElements.forEach((el) => {
+      el.setAttribute('inert', '');
+      el.setAttribute('aria-hidden', 'true');
+    });
 
     return () => {
-      window.clearTimeout(focusTarget)
-      document.removeEventListener('keydown', handleKeyDown)
-      document.body.style.overflow = ''
-      previouslyFocusedRef.current?.focus()
-    }
-  }, [initialFocusRef, onClose, open])
+      window.clearTimeout(focusTimer);
+      document.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = originalOverflow;
+      
+      rootElements.forEach((el) => {
+        el.removeAttribute('inert');
+        el.removeAttribute('aria-hidden');
+      });
 
-  if (!open || !mounted) {
-    return null
-  }
+      // Restore focus
+      if (previousFocusRef.current && document.body.contains(previousFocusRef.current)) {
+        previousFocusRef.current.focus();
+      }
+    };
+  }, [isOpen, onClose, closeOnEscape, initialFocusRef]);
+
+  if (!isOpen || !mounted) return null;
+
+  const handleBackdropClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (event.target === event.currentTarget) {
+      onClose();
+    }
+  };
+
+  const animationClasses = prefersReducedMotion ? '' : 'animate-in fade-in duration-300';
+  const slideClasses = prefersReducedMotion ? '' : 'animate-in slide-in-from-bottom-8 duration-500 ease-out';
+
+  // We trim the classes in case some are empty to avoid stray spaces, 
+  // though it's technically fine if they have spaces.
+  const finalBackdropClass = `fixed inset-0 z-[9999] flex items-center justify-center ${backdropClassName} ${animationClasses}`.trim();
+  const finalPanelClass = `${slideClasses} ${className}`.trim();
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/75 px-4 py-6 backdrop-blur-sm"
+      data-dialog-portal
+      data-testid="dialog-backdrop"
+      className={finalBackdropClass}
+      onClick={handleBackdropClick}
       role="presentation"
     >
       <div
-        ref={containerRef}
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
-        aria-labelledby={titleId}
-        aria-describedby={description ? descriptionId : undefined}
-        className="w-full max-w-xl rounded-[32px] border border-[#0ff0fc26] bg-[#081014] p-6 text-white shadow-[0_32px_120px_rgba(0,0,0,0.55)] sm:p-8"
+        aria-labelledby={labelledById}
+        aria-describedby={describedById}
+        tabIndex={-1}
+        className={finalPanelClass}
       >
-        <div className="mb-6 space-y-3">
-          <h2 id={titleId} className="text-2xl font-semibold tracking-tight text-white sm:text-[2rem]">
-            {title}
-          </h2>
-          {description ? (
-            <p id={descriptionId} className="max-w-2xl text-sm leading-6 text-[#d9f9fb]/78 sm:text-[15px]">
-              {description}
-            </p>
-          ) : null}
-        </div>
-
         {children}
       </div>
     </div>,
     document.body
-  )
+  );
 }

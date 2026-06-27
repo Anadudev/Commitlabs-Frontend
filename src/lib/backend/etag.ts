@@ -1,5 +1,25 @@
-// @ts-ignore
 import { createHash } from 'crypto';
+
+function stableSerialize(value: unknown): string {
+  if (value === undefined) {
+    return 'null';
+  }
+
+  if (value === null || typeof value !== 'object') {
+    return JSON.stringify(value) ?? 'null';
+  }
+
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableSerialize(item)).join(',')}]`;
+  }
+
+  const entries = Object.entries(value as Record<string, unknown>)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .filter(([, entryValue]) => entryValue !== undefined)
+    .map(([key, entryValue]) => `${JSON.stringify(key)}:${stableSerialize(entryValue)}`);
+
+  return `{${entries.join(',')}}`;
+}
 
 /**
  * Generates a stable ETag from a serialized payload.
@@ -9,7 +29,7 @@ import { createHash } from 'crypto';
  * @returns A quoted ETag string suitable for HTTP headers
  */
 export function generateETag(data: unknown): string {
-  const serialized = JSON.stringify(data);
+  const serialized = stableSerialize(data);
   const hash = createHash('sha256').update(serialized).digest('hex');
   return `"${hash}"`;
 }

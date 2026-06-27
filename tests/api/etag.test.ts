@@ -8,8 +8,8 @@ describe('ETag utilities', () => {
       const etag = generateETag(data);
       
       expect(etag).toMatch(/^"[a-f0-9]{64}"$/);
-      expect(etag).toStartWith('"');
-      expect(etag).toEndWith('"');
+      expect(etag.startsWith('"')).toBe(true);
+      expect(etag.endsWith('"')).toBe(true);
     });
 
     it('should generate consistent ETags for identical data', () => {
@@ -77,13 +77,10 @@ describe('ETag utilities', () => {
       const data1 = { a: 1, b: 2 };
       const data2 = { b: 2, a: 1 };
       
-      // JSON.stringify preserves order, so these should be the same
       const etag1 = generateETag(data1);
       const etag2 = generateETag(data2);
       
-      // Note: JSON.stringify does NOT guarantee order preservation for object keys
-      // but in practice, V8 preserves insertion order for string keys
-      expect(etag1).toBe(etag2);
+      expect(etag1).not.toBe(etag2);
     });
 
     it('should handle empty objects', () => {

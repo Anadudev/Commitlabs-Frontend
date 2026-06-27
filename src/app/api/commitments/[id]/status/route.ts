@@ -46,6 +46,7 @@ export function getDaysRemaining(expiresAt?: string): number {
 export const GET = withApiHandler(async (
   req: NextRequest,
   context: { params: Record<string, string> },
+  correlationId: string,
 ) => {
   const ip = req.ip ?? req.headers.get('x-forwarded-for') ?? 'anonymous';
   const isAllowed = await checkRateLimit(ip, 'api/commitments/status');
@@ -80,5 +81,5 @@ export const GET = withApiHandler(async (
     expiresAt: commitment.expiresAt ?? null,
   };
 
-  return ok(response);
+  return ok(response, undefined, 200, correlationId);
 });
