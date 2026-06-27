@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import './globals.css'
 import ScrollToTopButton from "@/components/landing-page/ui/ScrollToTop"
 import { ToastProvider } from "@/components/toast/ToastProvider"
+import { CommandPaletteProvider } from "@/components/CommandPalette"
 import { Inter, Roboto_Mono } from 'next/font/google'
 
 const inter = Inter({
@@ -98,6 +99,7 @@ export default function RootLayout({
         <ToastProvider>
           {children}
           <ScrollToTopButton />
+          <CommandPaletteProvider />
         </ToastProvider>
       </body>
     </html>
