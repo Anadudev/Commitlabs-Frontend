@@ -22,6 +22,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { z } from 'zod';
 import { UnauthorizedError } from './errors';
+import { verifySessionToken } from './auth';
 
 // ─── Schema ──────────────────────────────────────────────────────────────────
 
@@ -186,7 +187,13 @@ export function requireWalletAuth(authHeader: string | null): string {
 
     const token = parts[1];
 
-    // Decode placeholder token: session_<address>_<timestamp>
+    // 1. Try to verify session token via the session store first
+    const session = verifySessionToken(token);
+    if (session.valid && session.address) {
+        return session.address;
+    }
+
+    // 2. Fall back to placeholder token: session_<address>_<timestamp>
     const match = token.match(/^session_([A-Z0-9]+)_\d+$/);
     if (!match) {
         throw new UnauthorizedError('Invalid or expired session token.');
