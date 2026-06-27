@@ -50,6 +50,7 @@ export function MarketplaceHeader({
   const [stats, setStats] = useState<MarketplaceStats | null>(null);
   const [statsError, setStatsError] = useState<string | null>(null);
   const [sortValue, setSortValue] = useState<SortValue>('popular');
+  const [query, setQuery] = useState('');
 
   // Fetch marketplace stats on mount
   useEffect(() => {

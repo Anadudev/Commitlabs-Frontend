@@ -199,6 +199,7 @@ export default function CreateCommitmentStepSelectType({
           <button
             onClick={handleContinue}
             disabled={!selectedType}
+            data-testid="select-type-continue"
             className={`${styles.continueBtn} ${
               selectedType ? styles.continueBtnEnabled : styles.continueBtnDisabled
             }`}

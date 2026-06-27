@@ -5,8 +5,12 @@ import { useRouter } from "next/navigation";
 import CreateCommitmentStepSelectType from "@/components/CreateCommitmentStepSelectType";
 import CreateCommitmentStepConfigure from "@/components/CreateCommitmentStepConfigure";
 import CreateCommitmentStepReview from "@/components/CreateCommitmentStepReview";
-import CommitmentCreatedModal from "@/components/modals/Commitmentcreatedmodal";
+import CommitmentCreatedModal from "@/components/modals/CommitmentCreatedModal";
 import { buildExplorerUrl, openExplorerUrl } from "@/utils/explorerLinks";
+import { useWallet } from "@/hooks/useWallet";
+import { useGuidedTour } from "@/hooks/useGuidedTour";
+import { GuidedTour } from "@/components/onboarding/GuidedTour";
+import { HelpCircle } from "lucide-react";
 
 type CommitmentType = "safe" | "balanced" | "aggressive";
 
@@ -23,6 +27,27 @@ function generateCommitmentId(): string {
 export default function CreateCommitment() {
   const router = useRouter();
   const [step, setStep] = useState(1);
+  const { address: walletAddress } = useWallet();
+
+  const {
+    isActive: tourActive,
+    currentStepIndex,
+    currentStepConfig,
+    totalSteps,
+    nextStep,
+    prevStep,
+    skipTour,
+    startTour,
+  } = useGuidedTour({
+    activeWizardStep: step as 1 | 2 | 3,
+    setWizardStep: (s) => setStep(s),
+    walletAddress,
+    onSelectDefaultType: () => {
+      if (!selectedType) {
+        handleSelectType("balanced");
+      }
+    },
+  });
   const [selectedType, setSelectedType] = useState<CommitmentType | null>(null);
   const [commitmentType, setCommitmentType] =
     useState<CommitmentType>("balanced");
@@ -216,6 +241,30 @@ export default function CreateCommitment() {
           />
         </>
       )}
+
+      {/* Help button to re-launch tour */}
+      <button
+        type="button"
+        onClick={startTour}
+        className="fixed bottom-6 right-6 z-50 flex items-center gap-2 rounded-full border border-[rgba(0,212,255,0.4)] bg-[rgba(10,10,11,0.9)] px-4 py-2.5 text-sm font-semibold text-[#0ff0fc] shadow-[0_0_15px_rgba(0,212,255,0.2)] backdrop-blur-md transition-all duration-300 hover:-translate-y-0.5 hover:border-[rgba(0,212,255,0.8)] hover:shadow-[0_0_20px_rgba(0,212,255,0.5)] focus:outline-none focus:ring-2 focus:ring-[#0ff0fc]"
+        aria-label="Start guided tour"
+        title="Start guided tour"
+        data-testid="tour-help-button"
+      >
+        <HelpCircle size={18} />
+        <span>Tour Guide</span>
+      </button>
+
+      {/* Guided Tour Tooltip Controller */}
+      <GuidedTour
+        isActive={tourActive}
+        currentStepIndex={currentStepIndex}
+        currentStepConfig={currentStepConfig}
+        totalSteps={totalSteps}
+        onNext={nextStep}
+        onBack={prevStep}
+        onSkip={skipTour}
+      />
     </>
   );
 }
