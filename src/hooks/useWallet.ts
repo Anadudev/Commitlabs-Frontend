@@ -1,4 +1,4 @@
-import { getAddress, signMessage } from "@stellar/freighter-api";
+import { getAddress, getNetworkDetails, signMessage } from "@stellar/freighter-api";
 import { useState, useEffect, useCallback } from "react";
 
 const STORED_TOKEN_KEYS = [
@@ -65,6 +65,7 @@ export const useWallet = () => {
   const [error, setError] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [initialCheckDone, setInitialCheckDone] = useState(false);
+  const [walletNetwork, setWalletNetwork] = useState<string | null>(null);
 
   // Authentication State
   const [sessionToken, setSessionToken] = useState<string | null>(() => getStoredToken());
@@ -81,15 +82,23 @@ export const useWallet = () => {
         setError(result.error);
         setConnected(false);
         setAddress("");
+        setWalletNetwork(null);
       } else if (result.address) {
         setAddress(result.address);
         setConnected(true);
         setError(null);
+        try {
+          const details = await getNetworkDetails();
+          setWalletNetwork(details.networkPassphrase ?? null);
+        } catch {
+          setWalletNetwork(null);
+        }
       }
     } catch (e) {
       setError((e as Error).message || "Unable to connect to Freighter.");
       setConnected(false);
       setAddress("");
+      setWalletNetwork(null);
     } finally {
       setConnecting(false);
       setInitialCheckDone(true);
@@ -124,6 +133,7 @@ export const useWallet = () => {
     setAddress("");
     setError(null);
     setConnecting(false);
+    setWalletNetwork(null);
     signOut();
   }, [signOut]);
 
@@ -259,5 +269,6 @@ export const useWallet = () => {
     authError,
     signIn,
     signOut,
+    walletNetwork,
   };
 };
