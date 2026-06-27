@@ -3,7 +3,7 @@ import { ReputationDisplay } from "./ReputationDisplay";
 
 import { memo, useState } from "react";
 import { CommitmentDetailsModal } from "./modals/CommitmentDetailsModal";
-import Link from "next/link";
+import PurchaseSuccessModal from "./modals/PurchaseSuccessModal";
 import { TrustBadge, TrustLevel } from "./TrustBadge";
 
 export type CommitmentType = "Safe" | "Balanced" | "Aggressive";
@@ -23,6 +23,9 @@ export interface MarketplaceCardProps {
   forSale: boolean;
   tradeHref?: string;
   trustLevel?: TrustLevel;
+  /** Called when user confirms a purchase. Receives the commitment id and
+   *  must return (or resolve to) a tx hash string, or undefined on failure. */
+  onPurchase?: (id: string) => Promise<string | undefined> | string | undefined;
 }
 
 function clampScore(score: number) {
@@ -181,8 +184,12 @@ function MarketplaceCardComponent({
   forSale,
   tradeHref,
   trustLevel,
+  onPurchase,
 }: MarketplaceCardProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isPurchaseSuccessOpen, setIsPurchaseSuccessOpen] = useState(false);
+  const [purchaseTxHash, setPurchaseTxHash] = useState<string | undefined>();
+  const [isPurchasing, setIsPurchasing] = useState(false);
 
   const clampedScore = clampScore(score);
   const cardBorderClass =
@@ -208,6 +215,21 @@ function MarketplaceCardComponent({
 
   const resolvedTradeHref =
     tradeHref ?? `/marketplace/trade?id=${encodeURIComponent(id)}`;
+
+  async function handleTrade() {
+    if (onPurchase) {
+      setIsPurchasing(true);
+      try {
+        const hash = await onPurchase(id);
+        setPurchaseTxHash(hash);
+        setIsPurchaseSuccessOpen(true);
+      } finally {
+        setIsPurchasing(false);
+      }
+    } else {
+      window.location.href = resolvedTradeHref;
+    }
+  }
 
   return (
     <article
@@ -311,13 +333,15 @@ function MarketplaceCardComponent({
                 View
               </button>
 
-              <Link
-                className="focus-ring h-12 text-sm xl:text-base rounded-[14px] inline-flex items-center justify-center gap-1 xl:gap-2.5 font-[650] tracking-[0.01em] select-none text-[#0FF0FC] bg-[#0FF0FC1A] border-[0.56px] border-[#0FF0FC66] transition-[transform,filter] duration-[160ms] ease-[ease] hover:brightness-105 hover:-translate-y-px"
-                href={resolvedTradeHref}
+              <button
+                type="button"
+                onClick={handleTrade}
+                disabled={isPurchasing}
+                className="focus-ring h-12 text-sm xl:text-base rounded-[14px] inline-flex items-center justify-center gap-1 xl:gap-2.5 font-[650] tracking-[0.01em] select-none text-[#0FF0FC] bg-[#0FF0FC1A] border-[0.56px] border-[#0FF0FC66] transition-[transform,filter] duration-[160ms] ease-[ease] hover:brightness-105 hover:-translate-y-px disabled:opacity-50 disabled:pointer-events-none"
                 aria-label={`Trade ${id}`}
               >
-                <DollarSignIcon /> Trade
-              </Link>
+                <DollarSignIcon /> {isPurchasing ? 'Processing…' : 'Trade'}
+              </button>
             </div>
           </>
         ) : (
@@ -377,6 +401,19 @@ function MarketplaceCardComponent({
         totalCommitments={totalCommitments}
         successRate={successRate}
         TypeIcon={TypeIcon}
+      />
+
+      <PurchaseSuccessModal
+        isOpen={isPurchaseSuccessOpen}
+        onClose={() => setIsPurchaseSuccessOpen(false)}
+        commitmentId={id}
+        commitmentType={`${type} Commitment`}
+        pricePaid={price}
+        txHash={purchaseTxHash}
+        onViewCommitments={() => {
+          setIsPurchaseSuccessOpen(false);
+          window.location.href = '/commitments';
+        }}
       />
     </article>
   );
