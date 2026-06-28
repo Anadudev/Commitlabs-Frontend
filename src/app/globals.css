@@ -7,6 +7,33 @@
 }
 
 :root {
+  /* Surfaces */
+  --surface-primary: #0a0a0a;
+  --surface-secondary: rgba(15, 23, 42, 0.5);
+  --surface-secondary-hover: rgba(15, 23, 42, 0.8);
+
+  /* Text */
+  --text-primary: #ffffff;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+
+  /* Accents */
+  --accent-teal: #0ff0fc;
+  --accent-teal-rgb: 15, 240, 252;
+  --accent-green: #00ff7a;
+  --accent-green-rgb: 0, 255, 122;
+  --accent-blue: #3b82f6;
+  --accent-purple: #a855f7;
+  --accent-orange: #f97316;
+  --accent-neutral: #94a3b8;
+  --accent-danger: #ef4444;
+
+  /* Borders */
+  --border-subtle: rgba(255, 255, 255, 0.1);
+  --border-teal: rgba(94, 234, 212, 0.1);
+
+  /* Focus Ring */
+  --focus-ring-color: var(--accent-teal);
 
   /* ==========================================================================
      Design Tokens – Colors (WCAG AA on #0a0a0a surface)
@@ -36,7 +63,7 @@
   --focus-ring-color: var(--accent-cyan);
   --focus-ring-width: 2px;
   --focus-ring-offset: 2px;
-  --focus-ring-shadow: 0 0 0 4px rgba(15, 240, 252, 0.22);
+  --focus-ring-shadow: 0 0 0 4px rgba(var(--accent-teal-rgb), 0.22);
   --focus-ring-z-index: 4;
 }
 
@@ -58,7 +85,7 @@ body {
 }
 
 body {
-  background: #0a0a0a;
+  background: var(--surface-primary);
   min-height: 100vh;
 }
 
@@ -70,7 +97,7 @@ a {
 /* Accessibility */
 
 body {
-  background: #0a0a0a;
+  background: var(--surface-primary);
   min-height: 100vh;
 }
 
@@ -197,14 +224,14 @@ button {
 }
 
 .custom-scrollbar::-webkit-scrollbar-track {
-  background: #0A0A0A;
+  background: var(--surface-primary);
   border-radius: 9999px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb {
   background-color: #4A6B8A;
   border-radius: 9999px;
-  border: 2px solid #0A0A0A;
+  border: 2px solid var(--surface-primary);
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
@@ -214,5 +241,5 @@ button {
 /* Firefox */
 .custom-scrollbar {
   scrollbar-width: thin;
-  scrollbar-color: #4A6B8A #0A0A0A;
+  scrollbar-color: #4A6B8A var(--surface-primary);
 }
