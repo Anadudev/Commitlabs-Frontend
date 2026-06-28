@@ -5,14 +5,14 @@ import { render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { MarketplaceGrid } from '../../src/components/MarketplaceGrid';
 import { MarketplaceGridSkeleton } from '../../src/components/MarketplaceGridSkeleton';
-import type { MarketplaceCardProps } from '../../src/components/MarketplaceCard';
+import { makeMarketplaceCard } from '../fixtures';
 
 vi.mock('../../src/components/modals/CommitmentDetailsModal', () => ({
   CommitmentDetailsModal: () => null,
 }));
 
-const listings: MarketplaceCardProps[] = [
-  {
+const listings = [
+  makeMarketplaceCard({
     id: '7',
     type: 'Balanced',
     score: 91,
@@ -23,8 +23,8 @@ const listings: MarketplaceCardProps[] = [
     owner: 'GABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890',
     price: '$1,250',
     forSale: true,
-  },
-  {
+  }),
+  makeMarketplaceCard({
     id: '8',
     type: 'Safe',
     score: 87,
@@ -35,7 +35,7 @@ const listings: MarketplaceCardProps[] = [
     owner: 'GSHORT',
     price: '$900',
     forSale: false,
-  },
+  }),
 ];
 
 describe('MarketplaceGrid', () => {
