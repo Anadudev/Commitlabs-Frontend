@@ -5,6 +5,7 @@ import { ToastProvider } from "@/components/toast/ToastProvider"
 import { CommandPaletteProvider } from "@/components/CommandPalette"
 import { NetworkMismatchBanner } from "@/components/wallet/NetworkMismatchBanner"
 import { Inter, Roboto_Mono } from 'next/font/google'
+import { MotionProvider } from "@/components/MotionProvider"
 
 const inter = Inter({
   subsets: ['latin'],
@@ -97,12 +98,14 @@ export default function RootLayout({
       </head>
       <body>
         <a href="#main-content" className="skip-link">Skip to main content</a>
-        <ToastProvider>
-          <NetworkMismatchBanner />
-          {children}
-          <ScrollToTopButton />
-          <CommandPaletteProvider />
-        </ToastProvider>
+        <MotionProvider>
+          <ToastProvider>
+            <NetworkMismatchBanner />
+            {children}
+            <ScrollToTopButton />
+            <CommandPaletteProvider />
+          </ToastProvider>
+        </MotionProvider>
       </body>
     </html>
   )

@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
+vi.mock('next/font/google', () => ({
+  Inter: () => ({ variable: 'mock-inter-var' }),
+  Roboto_Mono: () => ({ variable: 'mock-roboto-mono-var' }),
+}))
+
 describe('RootLayout metadata', () => {
   const originalEnv = process.env
 
