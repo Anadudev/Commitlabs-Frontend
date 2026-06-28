@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useEffect } from 'react'
 import WizardStepper from './WizardStepper'
+import AllocationConstraintsEditor from './create/AllocationConstraintsEditor'
 import styles from './CreateCommitmentStepConfigure.module.css'
 import GlossaryTerm from './GlossaryTerm'
 
@@ -23,6 +24,7 @@ interface CreateCommitmentStepConfigureProps {
   estimatedFees: string
   isValid: boolean
   ownerAddress?: string
+  commitmentType?: 'safe' | 'balanced' | 'aggressive'
   onChangeAmount: (value: string) => void
   onChangeAsset: (asset: string) => void
   onChangeDuration: (value: number) => void
@@ -48,6 +50,7 @@ export default function CreateCommitmentStepConfigure({
   estimatedFees,
   isValid,
   ownerAddress = '',
+  commitmentType = 'balanced',
   onChangeAmount,
   onChangeAsset,
   onChangeDuration,
@@ -336,6 +339,15 @@ export default function CreateCommitmentStepConfigure({
               <p id="maxloss-hint" className={styles.constraintHint}>{MAX_LOSS_COPY}</p>
             )}
           </div>
+
+          {/* Allocation Constraints Editor */}
+          <AllocationConstraintsEditor
+            maxLossPercent={maxLossPercent}
+            commitmentType={commitmentType}
+            amount={amount}
+            asset={asset}
+            onChangeMaxLoss={onChangeMaxLoss}
+          />
 
           {/* Advanced Risk Settings */}
           <div className={styles.advancedToggleContainer}>
