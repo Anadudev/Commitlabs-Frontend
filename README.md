@@ -190,9 +190,7 @@ See [docs/FRONTEND_ARCHITECTURE.md](./docs/FRONTEND_ARCHITECTURE.md) for a
 detailed page→component→API-route map and state/data-flow conventions.
 ```
 
-## 🤝 Contributing
-
-## Security Headers
+## 🔒 Security Headers
 
 This project includes a reusable helper to attach standard security headers to HTTP responses.
 
@@ -227,10 +225,6 @@ This project includes a reusable helper to attach standard security headers to H
 - **Disabling/Modifying Headers:**
   The `attachSecurityHeaders` function returns the modified `Response` object. You can further modify headers on the returned object if needed, or update the `src/utils/response.ts` file to change default behaviors globally.
 
-## License
-
-We welcome contributions! Please see our [Developer Guide](./DEVELOPER_GUIDE.md) for detailed instructions on coding standards, testing procedures, and the pull request process.
-
 ## 📡 API Reference
 
 A description of the backend endpoints exposed under `/api` can be found in:
@@ -239,18 +233,32 @@ A description of the backend endpoints exposed under `/api` can be found in:
 - [docs/backend-cors-policy.md](./docs/backend-cors-policy.md)
 - [docs/backend-storage.md](./docs/backend-storage.md)
 
-This document includes available routes, required parameters, and example
-requests/responses.  It is intended for developers building against or testing
-the backend.
+This document includes available routes, required parameters, and example requests/responses. It is intended for developers building against or testing the backend.
 
+## 🤝 Contributing
+
+We welcome contributions to CommitLabs! Before you start, please read our [Developer Guide](./DEVELOPER_GUIDE.md) for details on coding standards, naming conventions, and testing guidelines.
+
+To standardize submissions and streamline reviews, we use structured templates:
+- **Bug Reports**: Use the [Bug Report Form](https://github.com/Commitlabs-Org/Commitlabs-Frontend/issues/new?assignees=&labels=type-bug&projects=&template=bug_report.yml) to report issues.
+- **Feature Requests**: Use the [Feature Request Form](https://github.com/Commitlabs-Org/Commitlabs-Frontend/issues/new?assignees=&labels=type-feature&projects=&template=feature_request.yml) to suggest enhancements.
+- **Pull Requests**: Every pull request must follow the checklist in our [Pull Request Template](https://github.com/Commitlabs-Org/Commitlabs-Frontend/blob/master/.github/PULL_REQUEST_TEMPLATE.md) (verifying 95% test coverage, the 96-hour campaign timeframe, lint checks, etc.).
+- **Discussions**: Have questions or need support? Join our [CommitLabs Discord](https://discord.gg/WV7tdYkJk) server.
+
+### Steps to Contribute
+1. **Fork** the repository and clone it to your local machine.
+2. **Create a branch** for your changes:
+   ```bash
+   git checkout -b feat/your-feature-name
+   ```
+3. **Develop & Test** following the conventions in the [Developer Guide](./DEVELOPER_GUIDE.md). Ensure any new or modified logic meets the **minimum 95% test coverage** requirement.
+4. **Lint** your code:
+   ```bash
+   pnpm lint
+   ```
+5. **Commit and Push** your changes to your fork.
+6. **Open a Pull Request** pointing to the upstream repository's `master` branch.
 
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🤝 Contributing
-Fork the repository and clone it to your local machine
-Create a new branch for your changes
-Make and test your updates following the project guidelines
-Commit and push your changes to your fork
-Open a Pull Request with a clear description
